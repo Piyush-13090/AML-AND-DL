@@ -1,0 +1,86 @@
+% Plain report style for Team T068 (single column, Times-like 12 pt, IEEE-style references)
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{t068report}[2026/10/20 Team T068 report style]
+
+\RequirePackage[a4paper,margin=2.54cm]{geometry}
+\RequirePackage{amsmath,amsthm}
+\RequirePackage{fontspec}
+\RequirePackage{unicode-math}
+\setmainfont{texgyretermes}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
+\setmathfont{texgyretermes-math.otf}
+\newcommand{\bm}[1]{\symbf{#1}}
+\RequirePackage{microtype}
+\RequirePackage{graphicx}
+\RequirePackage{booktabs,array,tabularx}
+\RequirePackage{xcolor}
+\RequirePackage{titlesec}
+\RequirePackage{enumitem}
+\RequirePackage{caption}
+\RequirePackage{float}
+\RequirePackage[section]{placeins}
+\RequirePackage{tikz}
+\usetikzlibrary{positioning,arrows.meta}
+\RequirePackage{algorithm}
+\RequirePackage{algpseudocode}
+\RequirePackage{cite}
+\RequirePackage[hidelinks]{hyperref}
+\RequirePackage{setspace}
+
+% text layout: like a word processor (1.15 line spacing, space between paragraphs, no indent)
+\setstretch{1.15}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\setlist{itemsep=2pt,topsep=3pt}
+\setlength{\emergencystretch}{2em}
+\graphicspath{{../../figures/}}
+
+% headings: plain bold, black
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.6em}{}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+% captions and tables
+\captionsetup{font=small,labelfont=bf,labelsep=colon}
+\captionsetup[table]{position=top,skip=4pt}
+\renewcommand{\arraystretch}{1.15}
+\renewcommand{\tabularxcolumn}[1]{>{\raggedright\arraybackslash}p{#1}}   % left-aligned text in table columns
+
+% page numbers only
+\pagestyle{plain}
+
+% plain title page
+% \maketitlepage{phase line}{subtitle}
+\newcommand{\maketitlepage}[2]{%
+  \begin{titlepage}
+  \centering
+  {\large Newton School of Technology, Rishihood University\par}
+  \vspace{2pt}
+  {B.Tech Computer Science and Artificial Intelligence\par}
+  \vspace{3.2cm}
+  {\large Project Report\par}
+  \vspace{0.6cm}
+  {\LARGE\bfseries Card-Fraud Triage: GMM Density Scoring vs\\[4pt] Autoencoder Anomaly Detector\par}
+  \vspace{0.7cm}
+  {\large #1\par}
+  \vspace{0.2cm}
+  {#2\par}
+  \vspace{2.4cm}
+  {Project 26 \quad|\quad Team ID: T068 \quad|\quad Section: B\par}
+  \vspace{1.2cm}
+  {\bfseries Submitted by\par}
+  \vspace{0.3cm}
+  \begin{tabular}{l l}
+    \toprule
+    \textbf{Name} & \textbf{Enrollment No.}\\
+    \midrule
+    Sharma Piyush        & 2401010437\\
+    Saransh Singh Tomar  & 2401010418\\
+    Satwik Mani Tripathi & 2401020056\\
+    Gourav Tanwar        & 2401010173\\
+    Alok Kumar           & 2401010058\\
+    \bottomrule
+  \end{tabular}
+  \vfill
+  {October 2026\par}
+  \end{titlepage}}

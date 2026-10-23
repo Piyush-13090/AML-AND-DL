@@ -1,0 +1,780 @@
+\documentclass[12pt]{article}
+\usepackage{../t068report}
+\input{numbers.tex}
+
+\begin{document}
+
+\maketitlepage{Phase 2: Deep Learning Evaluation}{Autoencoder anomaly detection and hybrid ML + DL density models}
+
+%==================================================================
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+In Phase~1 we showed that a Gaussian Mixture Model (GMM), fitted only to legitimate card transactions after a quantile
+transform, is a strong label-free fraud ranker (test PR-AUC \gmmTestAP{}). We also showed that it works only after the
+inputs are forced to look Gaussian, and that the Expectation--Maximisation (EM) fit is unstable in high dimensions. In
+Phase~2 we ask whether \emph{learned non-linear} models can close this gap.
+
+We train undercomplete and denoising autoencoders only on legitimate transactions and score each transaction by its
+reconstruction error. We run \nAblations{} ablation variants (two seeds each) covering input scaling, bottleneck size,
+depth, corruption type and strength, dropout, weight decay, activation function, amount of training data and label
+contamination. The factors interact strongly, so the final networks are chosen among validated candidates rather than
+by stacking every individually helpful change. The denoising autoencoder reaches a test PR-AUC of \daeTestAP{}. This is
+statistically on par with the GMM (paired bootstrap difference \sigDAEGMM{}), and the model is stable across seeds. The
+plain undercomplete autoencoder is significantly worse (\aeTestAP{}).
+
+We then test five ML + DL hybrids, all fitted in two stages without leakage: latent-space GMMs in the style of DAGMM, a
+reconstruction-augmented GMM, late score fusion, and semi-supervised stacking. None significantly beats the GMM. Our
+measurements show why: the autoencoder and the GMM find the same frauds, and the encoder's latent code discards the
+anomaly evidence, which lives in the reconstruction residual. A label-efficiency study shows that the label-free GMM is
+worth about 17 labelled frauds, and that a supervised model trained on all labels is significantly better. We
+therefore recommend deploying the GMM first and moving to a supervised model once a few dozen frauds have been
+confirmed.
+
+\medskip
+\textbf{Keywords:} fraud detection, anomaly detection, autoencoder, denoising autoencoder, Gaussian mixture model,
+hybrid models, ablation study, label efficiency.
+
+\newpage
+\tableofcontents
+\newpage
+
+%==================================================================
+\section{Introduction}
+
+\subsection{Recap of Phase 1}
+Phase~1 framed card-fraud triage as novelty detection. A GMM fitted by EM to \emph{legitimate} transactions ranks every
+transaction by its negative log-likelihood $-\log p(\mathbf{x})$, so that analysts review the least ``normal-looking''
+transactions first. With a quantile (marginal Gaussianisation) transform and $K=\pOneK$ full-covariance components, the
+GMM reached a test PR-AUC of \gmmTestAP{}. It caught \gmmRecallA{} of test frauds at a 0.1\% false-positive budget, and
+\gmmPA{} of its top-50 alerts were fraud.
+
+\subsection{The gap left by Phase 1}
+Phase~1 also measured three weaknesses of the GMM:
+\begin{enumerate}
+\item \textbf{Shape assumption.} The GMM works only after every feature is forced to look Gaussian. Each component is a
+fixed ellipsoid, and adding components did not help.
+\item \textbf{Instability in high dimensions.} Each full-covariance component has \perComp{} parameters in \pOneD{}
+dimensions, the fitted covariances are close to singular, and EM's solution depends on its random start.
+\item \textbf{Model selection.} AIC and BIC keep asking for more components without any gain in detection quality.
+\end{enumerate}
+
+\subsection{Objectives of Phase 2}
+\begin{enumerate}
+\item Train autoencoders (undercomplete and denoising) on legitimate transactions only, as named in the project brief,
+and score transactions by reconstruction error.
+\item Justify every architectural and regularisation choice with ablation studies.
+\item Compare the autoencoders with the Phase-1 GMM fairly: same rows, same split, same metrics, thresholds from
+validation, and paired statistical tests.
+\item Design and evaluate hybrid ML + DL approaches, and explain when and why they add value.
+\item Give a practical triage recommendation.
+\end{enumerate}
+
+\subsection{Contributions}
+\begin{itemize}
+\item A fully ablated autoencoder study (\nAblations{} variants, two seeds each), with a candidate-based selection
+procedure that handles interacting factors.
+\item A diagnosis of the relationship between reconstruction error and Gaussian density, tested empirically.
+\item A controlled hybrid study with leakage-free two-stage fitting: DAGMM-style latent densities, a
+reconstruction-augmented GMM, late fusion, and a semi-supervised stacking model with a label-efficiency analysis.
+\item Multi-seed variance and paired bootstrap significance tests for every headline comparison.
+\end{itemize}
+
+%==================================================================
+\section{Deep Learning Literature Review}\label{sec:lit}
+
+\subsection{Autoencoders and their relation to PCA}
+An autoencoder is a neural network trained to reproduce its input through a narrow intermediate layer. Baldi and
+Hornik~\cite{baldi1989} proved that a \emph{linear} autoencoder trained with squared error has no spurious local
+minima and that its optimum spans the principal subspace of the data. A linear autoencoder is therefore equivalent to
+PCA. Hinton and Salakhutdinov~\cite{hinton2006} showed that deep non-linear autoencoders learn much better
+low-dimensional codes than PCA. Goodfellow, Bengio and Courville~\cite{goodfellow2016} give a textbook treatment of
+undercomplete, regularised and denoising autoencoders.
+
+\subsection{Reconstruction error as an anomaly score}
+Sakurada and Yairi~\cite{sakurada2014} train autoencoders on normal data and use reconstruction error as the anomaly
+score. They show that this captures non-linear structure that linear PCA misses. An and Cho~\cite{an2015} propose a
+variational autoencoder with a ``reconstruction probability'' score. The surveys of Chalapathy and
+Chawla~\cite{chalapathy2019} and Pang~\emph{et~al.}~\cite{pang2021} identify reconstruction-based models as the dominant
+family of deep anomaly detectors. They also point out their main weakness: a network that generalises well can
+reconstruct anomalies too. Pumsirirat and Yan~\cite{pumsirirat2018} apply autoencoders to credit-card fraud.
+
+\subsection{Denoising and regularisation}
+Vincent~\emph{et~al.}~\cite{vincent2008,vincent2010} introduced denoising autoencoders, which reconstruct a clean
+input from a corrupted copy. This forces robust features and prevents the network from learning the identity map.
+Alain and Bengio~\cite{alain2014} showed that, for small Gaussian noise, the optimal denoising reconstruction satisfies
+$r(\mathbf{x})-\mathbf{x}\propto\sigma^2\nabla_{\mathbf{x}}\log p(\mathbf{x})$. A denoising autoencoder therefore
+implicitly learns the gradient of the log-density of the data, which links the reconstruction view of Phase~2 to the
+density view of Phase~1. Our training also uses dropout~\cite{srivastava2014}, the Adam optimiser~\cite{kingma2015} and
+ELU activations~\cite{clevert2016}, each of which we ablate.
+
+\subsection{Hybrid deep and density models}
+DAGMM~\cite{zong2018} couples an autoencoder with a GMM fitted on the concatenation of the latent code and two
+reconstruction features (relative Euclidean distance and cosine similarity). It trains both jointly and outperforms
+stand-alone autoencoders and GMMs on several benchmarks. Deep SVDD~\cite{ruff2018} learns a representation in which
+normal data falls inside a minimum-volume hypersphere. For card fraud, Carcillo~\emph{et~al.}~\cite{carcillo2021} combine
+unsupervised outlier scores with supervised classifiers.
+
+\subsection{Summary}
+\begin{table}[H]
+\centering\small
+\caption{Deep-learning literature and how it shapes our Phase-2 design.}
+\label{tab:lit}
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+\textbf{Work} & \textbf{Contribution} & \textbf{How we use it}\\
+\midrule
+Baldi \& Hornik~\cite{baldi1989} & Linear autoencoder = PCA & Ablation of the activation function (linear case)\\
+Sakurada \& Yairi~\cite{sakurada2014} & Reconstruction error as anomaly score & Phase-2 baseline detector\\
+Vincent \emph{et al.}~\cite{vincent2008} & Denoising autoencoder & Denoising variant; noise ablation\\
+Alain \& Bengio~\cite{alain2014} & Denoising learns the density gradient & Link between the GMM and the autoencoder\\
+Zong \emph{et al.}~\cite{zong2018} (DAGMM) & GMM on latent code + reconstruction features & Hybrids H1 and H2\\
+Carcillo \emph{et al.}~\cite{carcillo2021} & Unsupervised scores as features for supervised models & Semi-supervised hybrid H5\\
+Pang \emph{et al.}~\cite{pang2021} & Reconstruction models can over-generalise & Diagnosis of over-generalisation\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%==================================================================
+\section{Data, Protocol and DL-specific Data Handling}\label{sec:data}
+
+\subsection{Shared protocol}
+All Phase-2 models use exactly the same data and protocol as Phase~1:
+\begin{itemize}
+\item 1{,}081 duplicate rows are removed before splitting;
+\item rows are ordered by time and split into train (60\%), validation (20\%) and test (20\%) blocks;
+\item models are fitted on legitimate training rows only;
+\item hyper-parameters and thresholds are chosen on validation;
+\item the test block (\testFraud{} frauds, base rate \testRate) is used once.
+\end{itemize}
+The input features are the Phase-1 feature set (V1--V28, $d=\pOneD$).
+
+\subsection{Data handling for the deep models}
+\begin{itemize}
+\item \textbf{Legitimate-only training.} The fraud label is used once, to remove the 342 training frauds. We also
+measure what happens when they are left in (ablation A7).
+\item \textbf{Label-free early stopping.} A random 10\% of the legitimate training rows is held out and used only to
+monitor the reconstruction loss. No fraud label is involved in training or early stopping.
+\item \textbf{Input scaling.} Each model gets its own validated preprocessing. The GMM uses the quantile transform from
+Phase~1. For the autoencoder the scaler is chosen by ablation (A0); every scaler is fitted on legitimate training rows
+only.
+\item \textbf{Leakage control for hybrids.} Second-stage models are never fitted on rows that the autoencoder was
+trained on (Section~\ref{sec:hyb}).
+\end{itemize}
+
+%==================================================================
+\section{Methodology}\label{sec:method}
+
+\subsection{Autoencoder}
+An encoder $f_\theta:\mathbb{R}^d\rightarrow\mathbb{R}^m$ and a decoder $g_\phi:\mathbb{R}^m\rightarrow\mathbb{R}^d$ with
+$m<d$ are trained on legitimate rows to minimise the mean squared reconstruction error plus an L2 penalty:
+\begin{equation}
+\mathcal{L}(\theta,\phi)=\frac1n\sum_{i=1}^{n}\big\lVert\mathbf{x}_i-g_\phi\big(f_\theta(\tilde{\mathbf{x}}_i)\big)\big\rVert_2^2+\lambda\lVert\mathbf{W}\rVert_2^2 .
+\end{equation}
+For the undercomplete autoencoder $\tilde{\mathbf{x}}_i=\mathbf{x}_i$. The bottleneck ($m<d$) stops the network from
+learning the identity map: it must keep only the structure shared by legitimate transactions, the (possibly curved)
+manifold on which they lie.
+
+\subsection{Denoising autoencoder}
+The denoising autoencoder (DAE) trains on corrupted inputs and reconstructs the \emph{clean} input. We consider two
+corruptions:
+\begin{align}
+\text{Gaussian noise:}&\quad \tilde{\mathbf{x}}=\mathbf{x}+\bm\epsilon,\qquad \bm\epsilon\sim\mathcal{N}(\mathbf{0},\sigma^2\mathbf{I}),\\
+\text{Masking:}&\quad \tilde{x}_j=x_j\, b_j,\qquad b_j\sim\text{Bernoulli}(1-p).
+\end{align}
+The network must learn to pull points back onto the data manifold. This acts as a strong regulariser, and by the
+result of Alain and Bengio~\cite{alain2014} it ties the reconstruction to the gradient of the data's log-density. At
+test time no noise is added.
+
+\subsection{Anomaly score}
+Every transaction is scored by its reconstruction error on the clean input,
+\begin{equation}
+e(\mathbf{x})=\frac1d\lVert\mathbf{x}-\hat{\mathbf{x}}\rVert_2^2,\qquad \hat{\mathbf{x}}=g_\phi(f_\theta(\mathbf{x})).
+\end{equation}
+Thresholds are chosen on validation exactly as in Phase~1.
+
+\subsection{Architecture}
+The default network is a symmetric multilayer perceptron (Fig.~\ref{fig:ae}). Table~\ref{tab:arch} lists the design
+choices and their reasons.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=1.35cm,y=1cm]
+\foreach \i/\h/\lab in {0/3.0/28,1/2.6/24,2/1.9/16,3/1.9/16,4/1.9/16,5/2.6/24,6/3.0/28}{
+  \draw (\i-0.22,-\h/2) rectangle (\i+0.22,\h/2);
+  \node[below,font=\small] at (\i,-1.7) {\lab};
+}
+\foreach \i in {0,...,5}{\draw[-{Stealth[length=2mm]}] (\i+0.27,0) -- (\i+0.73,0);}
+\node[font=\small] at (0,1.9) {input $\mathbf{x}$};
+\node[font=\small] at (3,1.4) {code $\mathbf{z}$};
+\node[font=\small] at (6,1.9) {output $\hat{\mathbf{x}}$};
+\node[font=\small] at (1,-2.3) {encoder};
+\node[font=\small] at (5,-2.3) {decoder};
+\end{tikzpicture}
+\caption{Selected autoencoder architecture ($d=\pOneD$ inputs, hidden layers of 24 and 16 units, a 16-unit code).
+Numbers give the width of each layer. The denoising version uses the same network with Gaussian input noise during
+training.}
+\label{fig:ae}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\caption{Architecture and training choices.}
+\label{tab:arch}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Choice} & \textbf{Value} & \textbf{Reason}\\
+\midrule
+Encoder & $d\rightarrow24\rightarrow16\rightarrow m$ & gradual compression; $m$ chosen by ablation (A1)\\
+Decoder & mirror of the encoder, linear output & standardised inputs are unbounded, so no sigmoid or tanh at the output\\
+Code layer & linear & lets the code use the whole real line\\
+Activation & ELU & smooth and non-zero for negative inputs (no ``dead'' units); compared in A6\\
+Loss & mean squared error & matches the reconstruction score\\
+Regularisation & bottleneck, input noise, L2 weight decay, dropout, early stopping & each ablated (A1, A3--A5)\\
+Optimiser & Adam, learning rate $2\times10^{-3}$, batch 2048 & standard and stable for small networks\\
+Schedule & ReduceLROnPlateau (factor 0.5, patience 3), at most 200 epochs & lowers the learning rate when the holdout loss stalls\\
+Early stopping & patience 10 on a label-free 10\% holdout & best weights are restored\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{algorithm}[H]
+\caption{Training an autoencoder on legitimate transactions}
+\label{alg:train}
+\begin{algorithmic}[1]
+\Require legitimate training rows $X$; configuration (architecture, noise $\sigma$ or masking $p$, weight decay $\lambda$)
+\State Split $X$ at random into a training part (90\%) and a label-free holdout $H$ (10\%)
+\For{epoch $=1,\dots,200$}
+  \For{each mini-batch $B$ of the training part}
+    \State $\tilde B\gets$ corrupt$(B)$ \Comment{identity for the undercomplete autoencoder}
+    \State $\hat B\gets g_\phi(f_\theta(\tilde B))$;\; loss $\gets\lVert \hat B-B\rVert^2/|B|$
+    \State update $\theta,\phi$ with Adam (L2 weight decay $\lambda$)
+  \EndFor
+  \State holdout loss $\gets$ mean squared error of the clean reconstruction of $H$
+  \State keep the weights with the lowest holdout loss; stop after 10 epochs without improvement
+\EndFor
+\State \Return best weights; score $e(\mathbf{x})=\lVert\mathbf{x}-\hat{\mathbf{x}}\rVert^2/d$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Why reconstruction error may differ from a Gaussian density}
+Let the covariance of legitimate data have eigenpairs $(\lambda_j,\mathbf{u}_j)$. The Gaussian score (Mahalanobis
+distance) is $\sum_j\big(\mathbf{u}_j^{\top}(\mathbf{x}-\bm\mu)\big)^2/\lambda_j$. It strongly amplifies deviations along
+directions in which legitimate data barely varies (small $\lambda_j$). A linear autoencoder with code size $m$ has
+error $\sum_{j>m}\big(\mathbf{u}_j^{\top}(\mathbf{x}-\bm\mu)\big)^2$: the residual directions are weighted
+\emph{equally}, regardless of how tightly legitimate data is constrained along them. A non-linear autoencoder inherits
+this equal weighting in its residual. It may also partly reconstruct anomalies (over-generalisation~\cite{pang2021}).
+We test both hypotheses in Section~\ref{sec:diag}.
+
+\subsection{Hybrid designs}\label{sec:hyb}
+We evaluate five ways of combining the GMM (machine learning) with the autoencoder (deep learning). Each tests one idea
+(Table~\ref{tab:hyb-design}, Fig.~\ref{fig:hyb-pipe}).
+
+\begin{table}[H]
+\centering\small
+\caption{Hybrid designs.}
+\label{tab:hyb-design}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{ID} & \textbf{Stage-2 model} & \textbf{Idea}\\
+\midrule
+H0 & GMM on $\mathbf{x}$ (same rows) & reference: the plain GMM fitted on the same rows as the hybrids\\
+H1 & GMM on $\mathbf{z}$ & density estimation may be easier in a low-dimensional learned space (DAGMM idea~\cite{zong2018})\\
+H2 & GMM on $[\mathbf{z},\log e,\cos(\mathbf{x},\hat{\mathbf{x}})]$ & combine \emph{where} a point is on the manifold with \emph{how far} it is from it (DAGMM)\\
+H3 & GMM on $[\mathbf{x},\log e]$ & keep all input information and add the learned error as an extra dimension\\
+H4 & rank average of GMM and AE scores & naive late fusion, the baseline any real hybrid must beat\\
+H5 & gradient boosting on $[\mathbf{x},\text{GMM score},\log e]$ & semi-supervised: use the few frauds analysts have labelled~\cite{carcillo2021}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.8cm and 0.55cm,
+  box/.style={draw,align=center,font=\small,minimum height=1.1cm,text width=2.45cm},
+  arr/.style={-{Stealth[length=2mm]}}]
+\node[box] (a) {Legitimate rows,\\half A};
+\node[box,right=of a] (ae) {Stage 1:\\autoencoder};
+\node[box,below=1.2cm of a] (b) {Legitimate rows,\\half B (40{,}000)};
+\node[box,right=of b] (feat) {Stage-2 features\\$\mathbf{z}$, $\log e$, $\cos$, $\mathbf{x}$};
+\node[box,right=of feat] (gmm) {Stage 2:\\GMM ($K$ on val.)};
+\node[box,right=of gmm] (s) {Score\\$-\log p(\mathbf{h})$};
+\draw[arr] (a) -- (ae);
+\draw[arr] (ae) -- (feat);
+\draw[arr] (b) -- (feat);
+\draw[arr] (feat) -- (gmm);
+\draw[arr] (gmm) -- (s);
+\end{tikzpicture}
+\caption{Two-stage fitting of the unsupervised hybrids (H1--H3). The autoencoder is trained on half A; every
+second-stage GMM is fitted on half B, rows the autoencoder never saw.}
+\label{fig:hyb-pipe}
+\end{figure}
+
+\textbf{Leakage control.} On the rows it was trained on, an autoencoder's reconstruction error is unrealistically
+small. A second-stage model fitted on those rows would learn a distorted ``normal'' error level. For H1--H4 the
+legitimate training rows are therefore split at random into two halves. Half A trains the autoencoder, and a random
+40{,}000 rows of half B fit every second-stage GMM, together with the H0 reference on the same rows. The whole procedure
+is repeated for three seeds, and for each second-stage GMM, $K\in\{1,2,3,4\}$ is chosen on validation. For H5, GMM and
+autoencoder scores of training rows are computed \emph{out of fold}: in a 2-fold cross-fitting, each half is scored by
+models fitted on the other half. The supervised model is trained with a varying number of labelled frauds (5 random
+draws per budget).
+
+\textbf{Why two-stage instead of joint training?} DAGMM trains both parts jointly, which is known to be fragile: the GMM
+energy term can pull the encoder into degenerate solutions. Two-stage fitting is stable, and each stage can be
+validated separately. Joint training is left for future work.
+
+\subsection{Evaluation and statistical validation}
+We use the Phase-1 metrics:
+\begin{itemize}
+\item PR-AUC, with a 95\% stratified bootstrap interval;
+\item recall at false-positive budgets of 0.1\%, 0.5\% and 1\% (thresholds from validation);
+\item precision at review capacity (P@$k$).
+\end{itemize}
+To decide whether two models really differ, we use a \emph{paired} stratified bootstrap. We resample the test set
+1{,}000 times, compute $\text{PR-AUC}(A)-\text{PR-AUC}(B)$ on each identical resample, and report the 95\% interval of the
+difference together with the share of resamples in which $A$ is not better than $B$. Every development decision uses
+validation PR-AUC averaged over seeds.
+
+\subsection{Experimental setup}
+\begin{table}[H]
+\centering\small
+\caption{Experimental setup.}
+\label{tab:setup}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Item} & \textbf{Setting}\\
+\midrule
+Ablations & \nAblations{} variants $\times$ 2 seeds; one factor changed at a time from the default network\\
+Final models & 3 seeds each; test scores averaged over seeds\\
+Hybrids & 3 seeds; second-stage $K\in\{1,2,3,4\}$ chosen on validation\\
+Label efficiency & 6, 17, 34, 86 and 342 labelled frauds; 5 random draws per budget\\
+Gradient boosting & 300 iterations, learning rate 0.05, 15 leaves, L2 regularisation 1.0\\
+Bootstrap & 1{,}000 stratified resamples (paired for model comparisons)\\
+Software & Python 3, PyTorch~\cite{paszke2019}, scikit-learn~\cite{pedregosa2011}\\
+Hardware & Google Colab with an NVIDIA T4 GPU; about 35 s per autoencoder training run\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%==================================================================
+\section{Experiments and Results}\label{sec:results}
+
+\subsection{Ablation studies}\label{sec:abl}
+Fig.~\ref{fig:abl} shows all ablation groups, and Table~\ref{tab:abl} (Appendix~\ref{app:abl}) lists every variant.
+The default network scores only \ablDefault{} on validation. The main findings are:
+\begin{enumerate}
+\item \textbf{Bottleneck size is the largest single effect (A1).} Codes of 2--8 units are poor, and $m=16$ is by far
+the best variant ($\approx0.44$). The V-features are principal components with fairly evenly spread variance, so
+legitimate behaviour has no very low-dimensional structure. A tight code cannot rebuild \emph{legitimate} rows well,
+and their large errors drown the fraud signal.
+\item \textbf{Non-linearity is essential (A6).} The linear autoencoder, which is equivalent to PCA~\cite{baldi1989}, is
+the worst variant ($\approx0.03$). A network with no hidden layer also fails (A2).
+\item \textbf{Denoising helps when the noise is right (A3, A4).} Gaussian noise of $\sigma=0.2$ gives a large gain;
+smaller noise does nothing and $\sigma=0.4$ is too strong. Masking noise is weaker than Gaussian noise here.
+\item \textbf{Regularisation (A5).} Dropout \emph{hurts}, because it makes reconstructions noisier, and that noise is
+exactly what we score. Stronger L2 weight decay ($10^{-3}$) helps by giving a smoother mapping that generalises less to
+unusual inputs.
+\item \textbf{Inputs (A0).} Unlike the GMM, the autoencoder does not benefit from quantile inputs, which clip the extreme
+values that expose fraud. Robust scaling is slightly better than standard scaling on its own.
+\item \textbf{Training data (A7).} More legitimate data helps. Leaving the 0.2\% of training frauds in the training set
+is catastrophic, because the network learns to rebuild those extreme points too. The legitimate-only protocol is
+essential for this model.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{03_ablations.png}
+\caption{Autoencoder ablations: validation PR-AUC (mean $\pm$ std over 2 seeds) per factor. The solid line is the
+default network; the dashed line is the Phase-1 GMM.}
+\label{fig:abl}
+\end{figure}
+
+\subsection{Model selection with interacting factors}
+A natural next step would be to combine every change that helped on its own. We tried this: the combined network
+reached a validation PR-AUC of only about 0.02, worse than the default. The factors \emph{interact}. For example, a
+wide code combined with dropout and a deeper stack behaves very differently from each change alone. We therefore
+compare a short list of candidates on validation (Table~\ref{tab:cand}):
+\begin{itemize}
+\item the default network;
+\item each factor's best setting on its own;
+\item the two strongest changes combined;
+\item all improving changes combined.
+\end{itemize}
+The winner is the single best change, a 16-unit code with \aeScaler{} inputs. For the denoising autoencoder we add the
+best Gaussian-noise and the best masking setting to this network and again compare on validation. Gaussian noise
+$\sigma=0.2$ wins clearly.
+
+\begin{table}[H]
+\centering\small
+\caption{Candidate configurations compared on validation (PR-AUC, mean $\pm$ std over 2 seeds).}
+\label{tab:cand}
+\begin{tabular}{@{}l c l@{}}
+\toprule
+\textbf{Candidate} & \textbf{Validation PR-AUC} & \textbf{Source}\\
+\midrule
+\candidateRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training behaviour}
+Fig.~\ref{fig:curves} shows the training and holdout losses of the final networks. Both converge smoothly; early
+stopping on the label-free holdout restores the best epoch. For the denoising autoencoder the training loss is measured
+on corrupted inputs, so it stays above the clean holdout loss.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{03_training_curves.png}
+\caption{Training loss and label-free holdout loss of the final autoencoder (left) and denoising autoencoder (right),
+seed 0.}
+\label{fig:curves}
+\end{figure}
+
+\subsection{Autoencoders versus the Phase-1 GMM}
+Table~\ref{tab:ae} compares the final models on the test set (autoencoder scores averaged over three seeds),
+Table~\ref{tab:aesig} gives the paired significance tests, and Fig.~\ref{fig:aepr} shows the curves.
+\begin{itemize}
+\item The \textbf{denoising autoencoder} reaches PR-AUC \daeTestAP{}. It is statistically on par with the GMM
+(\gmmTestAP{}; difference \sigDAEGMM{}) and stable across seeds (\daeSeedMean{} $\pm$ \daeSeedStd{}).
+\item The \textbf{undercomplete autoencoder} is significantly worse than the GMM (\sigAEGMM{}) and sensitive to the seed
+(\aeSeedMean{} $\pm$ \aeSeedStd{}).
+\item \textbf{Denoising improves on plain reconstruction} by \sigDAEAE{}, acting as a strong
+regulariser~\cite{vincent2008}.
+\item At strict budgets the GMM remains ahead. It catches \gmmRecallA{} of frauds at a 0.1\% false-positive rate against
+\daeRecallA{} for the denoising autoencoder, and its top-50 queue holds \gmmPA{} fraud against \daePA{}.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{Test results: Phase-1 GMM versus autoencoders (thresholds from validation; base rate \testRate).}
+\label{tab:ae}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}l c c c c c c c c@{}}
+\toprule
+\textbf{Model} & \textbf{PR-AUC} & \textbf{95\% CI} & \textbf{ROC-AUC} & \textbf{Rec@0.1\%} & \textbf{Rec@0.5\%} & \textbf{Rec@1\%} & \textbf{P@50} & \textbf{P@100}\\
+\midrule
+\aeMainRows
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Paired bootstrap tests on the test set (1{,}000 resamples).}
+\label{tab:aesig}
+\begin{tabular}{@{}l r c c@{}}
+\toprule
+\textbf{Comparison} & \textbf{$\Delta$ PR-AUC} & \textbf{95\% CI} & \textbf{P(A not better)}\\
+\midrule
+\aeSigRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{03_pr_curves_gmm_vs_ae.png}
+\caption{Test precision--recall curves (left) and recall versus false-positive rate (right) for the GMM and the two
+autoencoders.}
+\label{fig:aepr}
+\end{figure}
+
+\subsection{Threshold analysis}
+Fig.~\ref{fig:aetrade} shows precision and recall against review workload for the three models. The curves almost
+coincide for large queues. The GMM is slightly better for small, high-precision queues, which matter most when
+analysts have little capacity.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\linewidth]{03_threshold_tradeoff.png}
+\caption{Precision (dashed) and recall (solid) versus number of alerts on the test period.}
+\label{fig:aetrade}
+\end{figure}
+
+\subsection{Interpretability: which features does the autoencoder fail to rebuild?}
+Reconstruction error decomposes over features, $e(\mathbf{x})=\frac1d\sum_j(x_j-\hat x_j)^2$. Averaging each term over
+frauds and over legitimate rows shows which features the network cannot rebuild for fraud (Fig.~\ref{fig:feat}). V17,
+V14 and V12 dominate, the same components that separate the classes in the exploratory analysis of Phase~1. An analyst
+can therefore be given a reason for each alert. Fig.~\ref{fig:latent} shows the score distribution and a 2-D
+projection of the latent codes.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\linewidth]{03_feature_errors.png}
+\caption{Mean squared reconstruction error per feature for legitimate and fraudulent test transactions (log scale).}
+\label{fig:feat}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{03_scores_and_latent.png}
+\caption{Autoencoder score distribution on test (left) and the latent codes projected to two dimensions (right).}
+\label{fig:latent}
+\end{figure}
+
+\subsection{Diagnosis}\label{sec:diag}
+Three measurements test the hypotheses of Section~\ref{sec:method}.
+\begin{enumerate}
+\item \textbf{Agreement.} On frauds, the autoencoder error and the GMM score rank transactions almost identically
+(Spearman $\rho=\diagRhoFraud$). On legitimate rows they agree much less ($\rho=\diagRhoLegit$). The two models find the
+same frauds but raise \emph{different} false alarms. A hybrid could therefore only hope to reduce false alarms, not to
+find new frauds.
+\item \textbf{Direction weighting.} Re-scoring the same autoencoder's residuals with a Gaussian fitted to legitimate
+residuals (a Mahalanobis residual score) \emph{lowers} test PR-AUC from \diagMSE{} to \diagMaha{}. The residuals are
+themselves heavy-tailed, so the theoretically motivated fix fails for the same reason a GMM fails on raw heavy-tailed
+inputs. The hypothesis is not supported in this simple form.
+\item \textbf{Over-generalisation.} The autoencoder reproduces \diagReconLegit{} of a typical legitimate row's deviation
+from the mean, but only \diagReconFraud{} of a typical fraud's. It does partly rebuild fraud, which limits its recall,
+but the gap is large enough to rank most frauds high.
+\end{enumerate}
+
+\subsection{Hybrid study}
+Table~\ref{tab:hyb} reports each unsupervised hybrid at its best second-stage $K$ (mean $\pm$ std over three seeds),
+and Fig.~\ref{fig:hyb} shows the comparison and the effect of $K$.
+\begin{itemize}
+\item \textbf{H3} (GMM on raw features plus the log reconstruction error) ties the plain GMM fitted on the same rows
+(H0). Adding the learned error gives the mixture nothing it does not already know.
+\item \textbf{H4} (late fusion) is worse than the GMM alone. The stage-1 network, trained on only half the legitimate
+rows, is weak and unstable on its own, and averaging it in dilutes the GMM's ranking.
+\item \textbf{H1 and H2}, the DAGMM-style latent-space hybrids, fail almost completely.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{Unsupervised hybrids at the best second-stage $K$ on validation (mean $\pm$ std over 3 seeds).}
+\label{tab:hyb}
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+\textbf{Model} & \textbf{$K$} & \textbf{Validation PR-AUC} & \textbf{Test PR-AUC}\\
+\midrule
+\hybridRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{04_hybrid_ablation.png}
+\caption{Hybrid ablation. Left: validation (bars, mean $\pm$ std) and test (dots) PR-AUC per design. Right: effect of
+the second-stage $K$.}
+\label{fig:hyb}
+\end{figure}
+
+\subsection{Where does the anomaly information live?}
+Table~\ref{tab:evidence} explains the failure of the latent-space hybrids. At a 1\% false-positive rate the latent GMM
+flags only \evTopLatent{} of test frauds, while the GMM on the raw inputs flags \evTopX{} and the reconstruction error
+\evTopAE{}. Fraud codes are barely larger than legitimate ones (mean $|\mathbf{z}|$ \evZfraud{} against \evZlegit{}).
+An encoder trained only on legitimate data maps \emph{any} input close to the region of normal codes. What exposes a
+fraud is that the decoder cannot rebuild it from that normal-looking code. The evidence therefore lies in the
+reconstruction residual, not in the code, and a density model of the code cannot see it.
+
+\begin{table}[H]
+\centering\small
+\caption{Evidence on the test set (seed 0). ``Above legit 99th pct'' = share of frauds flagged at a 1\% false-positive
+rate.}
+\label{tab:evidence}
+\begin{tabular}{@{}l r@{}}
+\toprule
+\textbf{Measurement} & \textbf{Value}\\
+\midrule
+\evidenceRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Semi-supervised hybrid and label efficiency}
+Table~\ref{tab:semi} and Fig.~\ref{fig:semi} train gradient boosting on the training block with only $n$ labelled
+frauds (five random draws per budget):
+\begin{itemize}
+\item with 6 labelled frauds the supervised model is worse than the label-free GMM and very unstable;
+\item with about 17 it matches the GMM;
+\item with 34 or more it is clearly better.
+\end{itemize}
+In other words, \emph{the label-free GMM is worth roughly 17 labelled frauds}. Adding the GMM score and the
+reconstruction error as features (H5) does not change PR-AUC measurably at any budget. Gradient boosting already extracts
+the relevant structure from the raw features.
+
+\begin{table}[H]
+\centering\small
+\caption{Label efficiency: test PR-AUC (mean $\pm$ std over 5 random draws) against the number of labelled training
+frauds.}
+\label{tab:semi}
+\begin{tabular}{@{}r c c@{}}
+\toprule
+\textbf{Labelled frauds} & \textbf{Raw features} & \textbf{Raw + GMM score + AE error (H5)}\\
+\midrule
+\semiRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{04_label_efficiency.png}
+\caption{Label efficiency. The dashed line is the label-free GMM.}
+\label{fig:semi}
+\end{figure}
+
+\subsection{Final comparison}
+Table~\ref{tab:final} and Fig.~\ref{fig:final} compare all approaches on the test set, and Table~\ref{tab:hybsig} gives
+the paired tests. No unsupervised hybrid beats the Phase-1 GMM: the best one (H3) differs by \sigHA{}, which is not
+significant. Labels are what move the needle: supervised gradient boosting with all training labels beats the GMM by
+\sigHD{}. The semi-supervised hybrid is no better than supervised alone (\sigHC{}). Note that the ``Stage-1 DAE alone''
+row is the autoencoder trained on half the rows for the hybrid study; the full-data denoising autoencoder of
+Table~\ref{tab:ae} scores \daeTestAP{}.
+
+\begin{table}[H]
+\centering\small
+\caption{Final test comparison (thresholds from validation; base rate \testRate). Models marked ``uses labels'' are
+references, not fair competitors to the label-free models.}
+\label{tab:final}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}l c c c c c c c c@{}}
+\toprule
+\textbf{Model} & \textbf{PR-AUC} & \textbf{95\% CI} & \textbf{ROC-AUC} & \textbf{Rec@0.1\%} & \textbf{Rec@0.5\%} & \textbf{Rec@1\%} & \textbf{P@50} & \textbf{P@100}\\
+\midrule
+\finalRows
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Paired bootstrap tests for the hybrid study (1{,}000 resamples).}
+\label{tab:hybsig}
+\begin{tabular}{@{}l r c c@{}}
+\toprule
+\textbf{Comparison} & \textbf{$\Delta$ PR-AUC} & \textbf{95\% CI} & \textbf{P(A not better)}\\
+\midrule
+\hybSigRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{04_final_comparison.png}
+\caption{Final comparison on test: precision--recall curves (left) and recall at fixed false-positive budgets (right).}
+\label{fig:final}
+\end{figure}
+
+\subsection{Triage recommendation}
+The recommended label-free system, chosen on validation, is the Phase-1 GMM. Table~\ref{tab:rec} lists its operating
+points on the 7.7-hour test period. A strict 0.1\% budget produces about 12 alerts per hour, of which roughly 60\% are
+fraud, and catches three quarters of all frauds. A larger queue adds very few frauds at a high cost in false alarms.
+
+\begin{table}[H]
+\centering\small
+\caption{Operating points of the recommended label-free model on the test period.}
+\label{tab:rec}
+\begin{tabular}{@{}l r r r r r@{}}
+\toprule
+\textbf{Policy} & \textbf{Alerts} & \textbf{Per hour} & \textbf{Caught} & \textbf{Precision} & \textbf{Legit flagged}\\
+\midrule
+\recRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+%==================================================================
+\section{Discussion}\label{sec:disc}
+
+\subsection{Technical validation}
+Every claim in this report rests on validation-based decisions and a single use of the test set. Headline comparisons
+are averaged over several seeds and checked with paired bootstrap tests. All second-stage models are fitted without
+leakage. The same pipeline run twice on Colab produced identical results.
+
+\subsection{Why the hybrids did not beat the GMM}
+On this dataset the quantile-transformed Gaussian density already captures what the autoencoder learns about fraud.
+Both models flag the same frauds, and they differ only on legitimate rows. Hybrids that keep the raw inputs therefore
+tie the GMM, and hybrids that rely on the latent code lose the very information that identifies fraud. This is a useful
+negative result: it shows \emph{where} the anomaly signal lives (in the residual, not the code), and it shows that
+DAGMM-style designs need care when the encoder is trained only on normal data.
+
+\subsection{Practical implications}
+For a bank starting a fraud-triage system, the results suggest a simple path:
+\begin{enumerate}
+\item deploy the label-free GMM first, with a threshold set by the review capacity;
+\item collect analyst verdicts on the alerts;
+\item once a few dozen frauds are confirmed, switch to (or add) a supervised model;
+\item retrain both regularly, because fraud patterns drift.
+\end{enumerate}
+
+\subsection{Limitations}
+\begin{itemize}
+\item The data covers two days, with 74 test frauds, so confidence intervals are wide (about $\pm0.1$ PR-AUC).
+\item The features are anonymised principal components, which limits feature engineering and interpretation.
+\item The hybrids are trained in two stages rather than jointly.
+\item The stage-1 autoencoder of the hybrid study is trained on half the legitimate rows, which weakens late fusion.
+\end{itemize}
+
+%==================================================================
+\section{Conclusion and Future Work}\label{sec:concl}
+Autoencoders trained only on legitimate transactions can detect card fraud, but their design must be validated
+carefully. The bottleneck size, the non-linearity and Gaussian input noise decide performance, and stacking
+individually helpful changes without re-validation fails. The selected denoising autoencoder matches the Phase-1 GMM
+within statistical noise and is the most stable deep model. No hybrid significantly improves on the GMM. The best one
+ties it, and DAGMM-style latent densities fail because the encoder maps fraud to normal-looking codes. Labels matter more
+than model combination: the label-free GMM is worth about 17 labelled frauds, and supervised boosting with all labels
+is significantly better.
+
+Future work includes:
+\begin{itemize}
+\item end-to-end (joint) DAGMM training;
+\item flexible density models, such as normalising flows, on the reconstruction residual rather than the latent code;
+\item longer data with real concept drift;
+\item cost-sensitive thresholds that use transaction amounts.
+\end{itemize}
+
+%==================================================================
+\bibliographystyle{IEEEtran}
+\bibliography{../references}
+
+%==================================================================
+\appendix
+\section{Full Ablation Results}\label{app:abl}
+\begin{table}[H]
+\centering\small
+\caption{All autoencoder ablation variants (validation PR-AUC, mean $\pm$ std over 2 seeds; mean number of epochs
+before early stopping).}
+\label{tab:abl}
+\begin{tabular}{@{}l l c r@{}}
+\toprule
+\textbf{Group} & \textbf{Setting} & \textbf{Validation PR-AUC} & \textbf{Epochs}\\
+\midrule
+\ablationRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Reproducibility}
+\begin{itemize}
+\item \textbf{Code.} Phase 2 uses notebooks 03 (autoencoders) and 04 (hybrid study). Both run top-to-bottom on Google
+Colab with a T4 GPU, download the dataset and verify its checksum.
+\item \textbf{Seeds.} Fixed seed lists for ablations (2 seeds), final models (3 seeds), hybrids (3 seeds) and label
+draws (5 draws).
+\item \textbf{Traceability.} All numbers in this report are generated from \texttt{results/*.json} into
+\texttt{numbers.tex}; all figures come from \texttt{figures/}.
+\item \textbf{Run time on Colab.} Notebook 03 takes about 35 minutes and notebook 04 about 15 minutes.
+\end{itemize}
+
+\section{Team Contributions}
+\begin{table}[H]
+\centering\small
+\caption{Team T068 (Section B): members and primary responsibilities in Phase 2. Every member can explain the full
+pipeline.}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Name} & \textbf{Enrollment No.} & \textbf{Primary responsibility (Phase 2)}\\
+\midrule
+Sharma Piyush & 2401010437 & DL data handling: legitimate-only training, label-free holdout, contamination study\\
+Saransh Singh Tomar & 2401010418 & Input preprocessing for the autoencoder and the scaling ablation\\
+Satwik Mani Tripathi & 2401020056 & Hybrid second stage: latent GMMs, augmented GMM and the evidence analysis\\
+Gourav Tanwar & 2401010173 & Autoencoder and denoising autoencoder: architecture, ablations and model selection\\
+Alok Kumar & 2401010058 & Evaluation, significance tests, label efficiency, report and presentation\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\end{document}

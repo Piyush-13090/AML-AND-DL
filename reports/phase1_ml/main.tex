@@ -1,0 +1,808 @@
+\documentclass[12pt]{article}
+\usepackage{../t068report}
+\input{numbers.tex}
+
+\begin{document}
+
+\maketitlepage{Phase 1: Machine Learning Evaluation}{Gaussian Mixture density scoring of legitimate card transactions}
+
+%==================================================================
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+Card fraud is rare (\fraudRate{} of transactions in our data), its patterns change over time, and confirmed labels
+arrive only weeks after a transaction. A practical fraud system is therefore a \emph{triage} tool. It ranks
+transactions so that a small team of analysts reviews the most suspicious ones first. In this first phase we frame
+fraud detection as \emph{novelty detection}. A Gaussian Mixture Model (GMM), fitted by the Expectation--Maximisation
+(EM) algorithm, learns the probability density of \emph{legitimate} transactions only, without ever seeing a fraud
+label, and the negative log-likelihood $-\log p(\mathbf{x})$ serves as the anomaly score.
+
+On the ULB credit-card dataset (\nRowsRaw{} transactions) we use a strictly chronological, leakage-controlled protocol:
+duplicates are removed before splitting, the train/validation/test blocks are ordered in time, models are fitted on
+legitimate rows only, and thresholds are chosen on validation and frozen for the test period. We find three things:
+\begin{enumerate}
+\item \textbf{Feature engineering matters most.} A per-feature quantile (Gaussianising) transform is the decisive
+design choice. It turns a single-Gaussian detector from PR-AUC \apStd{} into \apKOne{} and removes most of EM's
+seed-to-seed instability.
+\item \textbf{More components do not mean better detection.} AIC and BIC keep asking for more mixture components
+($K=\kBIC$), yet $K=1$ to $4$ detect fraud as well or better, and large mixtures are unstable.
+\item \textbf{The final model is a strong triage tool.} The selected GMM ($K=\selK$) reaches a test PR-AUC of
+\gmmTestAP{} (95\% CI \gmmCIlo--\gmmCIhi). At a false-positive budget of 0.1\% of legitimate customers it catches
+\gmmRecallA{} of test frauds, and \gmmPA{} of its top-50 alerts are fraud. This comes close to a supervised model that
+uses labels (\apSup{}).
+\end{enumerate}
+We document the false-positive trade-offs, an illustrative cost analysis and the limitations that motivate the deep
+learning phase.
+
+\medskip
+\textbf{Keywords:} fraud detection, anomaly detection, novelty detection, Gaussian
+mixture model, expectation--maximisation, model selection, imbalanced evaluation, precision--recall.
+
+\newpage
+\tableofcontents
+\newpage
+
+%==================================================================
+\section{Introduction}
+
+\subsection{Background and motivation}
+Every card payment must be approved within milliseconds, yet only a few hundred out of hundreds of thousands are
+fraudulent. Banks cannot investigate every transaction. Instead, a fraud system raises \emph{alerts}, and a limited
+team of analysts reviews them, blocks cards, or contacts customers~\cite{dalpozzolo2018}. The key question is
+therefore not ``is this transaction fraud?'' but ``\emph{which few transactions should analysts look at first?}''.
+This is a ranking (triage) problem.
+
+Supervised classifiers need many labelled frauds. In practice labels are scarce, arrive late (after chargebacks),
+and describe only \emph{past} fraud patterns~\cite{bolton2002}. Legitimate transactions, by contrast, are abundant and
+available immediately. This motivates \emph{novelty detection}: learn a model of normal behaviour and flag departures
+from it~\cite{chandola2009,pimentel2014}.
+
+\subsection{Problem statement}
+The project brief asks us to frame card fraud as anomaly detection. Models are fitted primarily on legitimate
+transactions, and probability-density scores are compared with reconstruction error on a held-out mixed set. In
+Phase~1 (machine learning) we must:
+\begin{itemize}
+\item fit a Gaussian Mixture Model on legitimate transactions, tune the component count with AIC and BIC, and use low
+log-likelihood as the anomaly score;
+\item use a chronological split, fit scaling and the GMM only on legitimate training rows, keep the fraud label hidden
+during training, select thresholds on validation data, and report base rates;
+\item report PR-AUC, recall at fixed false-positive budgets and precision at a review capacity, and \emph{not} rely on
+accuracy;
+\item identify the gap of the GMM that a deep-learning model (Phase~2) should address.
+\end{itemize}
+
+\subsection{Objectives}
+\begin{enumerate}
+\item Build a reproducible, leakage-free evaluation protocol shared by every model of both phases.
+\item Understand the data: quality, imbalance, temporal structure, separability and how Gaussian it is.
+\item Engineer features and preprocessing that suit a Gaussian density model.
+\item Fit, select and validate the GMM, and compare it with meaningful reference baselines.
+\item Translate scores into operating policies (thresholds, review workload, cost) for fraud analysts.
+\item Measure the GMM's weaknesses quantitatively, to motivate Phase~2.
+\end{enumerate}
+
+\subsection{Contributions}
+\begin{itemize}
+\item A leakage-controlled protocol: deduplication, a chronological 60/20/20 split, legitimate-only fitting, and
+thresholds frozen on validation.
+\item A feature-engineering study showing that \emph{marginal Gaussianisation} (quantile transform) is what makes a
+GMM work on heavy-tailed transaction features.
+\item An analysis of AIC/BIC model selection at large sample size, where the criteria and detection quality disagree.
+\item A quantified stability study of EM restarts, measuring the ``instability in high dimensions'' gap named in the
+brief.
+\item A triage-oriented evaluation with operating points, workload per hour and an illustrative cost analysis.
+\end{itemize}
+
+\subsection{Organisation of the report}
+Section~\ref{sec:lit} reviews related work. Sections~\ref{sec:data} and~\ref{sec:fe} analyse the data and describe the
+feature engineering. Section~\ref{sec:method} presents the GMM, the EM algorithm, model selection and the evaluation
+protocol. Section~\ref{sec:results} reports the experiments. Section~\ref{sec:disc} discusses the findings and
+limitations, and Section~\ref{sec:concl} concludes. The appendices cover reproducibility and team contributions.
+
+%==================================================================
+\section{Literature Review}\label{sec:lit}
+
+\subsection{Fraud detection as a learning problem}
+Bolton and Hand~\cite{bolton2002} review statistical fraud detection. They distinguish \emph{supervised} methods,
+which learn from labelled past fraud, from \emph{unsupervised} methods, which flag departures from normal behaviour.
+They argue that unsupervised methods are essential because fraudsters adapt and labels are delayed and incomplete.
+Dal~Pozzolo~\emph{et~al.} released the dataset we use~\cite{dalpozzolo2015} and later described a realistic
+fraud-detection system in which investigators review a fixed number of alerts per day~\cite{dalpozzolo2018}. In that
+setting the relevant metric is precision among the top-$k$ alerts, which is why we report precision at a review
+capacity. Carcillo~\emph{et~al.}~\cite{carcillo2021} showed that unsupervised outlier scores add information to
+supervised fraud classifiers, which supports treating anomaly scores as triage signals.
+
+\subsection{Anomaly and novelty detection}
+Chandola~\emph{et~al.}~\cite{chandola2009} classify anomaly-detection techniques as statistical (density-based),
+distance-based, clustering-based, classification-based and spectral. Statistical techniques assume that normal
+instances occur in high-probability regions of a stochastic model, which is exactly the GMM score $-\log p(\mathbf{x})$.
+Pimentel~\emph{et~al.}~\cite{pimentel2014} review \emph{novelty detection} (training on normal data only). They
+identify GMM-based density estimation as the canonical probabilistic approach and note its sensitivity to
+dimensionality and to the choice of model order. Isolation Forest~\cite{liu2008} isolates anomalies with random
+axis-aligned splits and needs no density model; we use it as a non-density reference.
+
+\subsection{Gaussian mixtures, EM and model order}
+Dempster, Laird and Rubin~\cite{dempster1977} formalised the EM algorithm for maximum-likelihood estimation with
+latent variables and proved that each iteration does not decrease the likelihood. McLachlan and Peel~\cite{mclachlan2000}
+and Bishop~\cite{bishop2006} give the standard treatment of finite mixtures: covariance structures (full, diagonal,
+tied), the singularity problem when a component collapses onto a few points, and covariance regularisation. To choose
+the number of components, Akaike's information criterion (AIC)~\cite{akaike1974} and Schwarz's Bayesian information
+criterion (BIC)~\cite{schwarz1978} penalise the log-likelihood by model size. BIC is consistent for the true order
+\emph{when the model family is correct}, an assumption that heavy-tailed real data violates.
+
+\subsection{Evaluation under extreme class imbalance}
+Davis and Goadrich~\cite{davis2006} show that a ROC curve can look excellent while precision is poor. Saito and
+Rehmsmeier~\cite{saito2015} show empirically that precision--recall (PR) plots are more informative than ROC plots on
+imbalanced data. Our primary metric is therefore PR-AUC (average precision). We never report accuracy: a model that
+flags nothing is 99.83\% ``accurate''.
+
+\subsection{Summary and research gap}
+\begin{table}[H]
+\centering\small
+\caption{Summary of the literature that shapes our Phase-1 design.}
+\label{tab:lit}
+\begin{tabularx}{\linewidth}{@{}l X X@{}}
+\toprule
+\textbf{Work} & \textbf{Contribution} & \textbf{How we use it}\\
+\midrule
+Bolton \& Hand~\cite{bolton2002} & Unsupervised fraud detection is needed: labels are scarce and late & Legitimate-only training protocol\\
+Dal Pozzolo \emph{et al.}~\cite{dalpozzolo2015,dalpozzolo2018} & Dataset; analysts review a fixed number of alerts & Precision at review capacity (P@$k$)\\
+Dempster \emph{et al.}~\cite{dempster1977} & EM algorithm for latent-variable models & GMM fitting; local optima studied\\
+Akaike~\cite{akaike1974}, Schwarz~\cite{schwarz1978} & AIC / BIC model selection & Sweep of $K$ and covariance type\\
+Pimentel \emph{et al.}~\cite{pimentel2014} & GMM novelty detection is sensitive to dimension and order & The ``gap'' we measure\\
+Liu \emph{et al.}~\cite{liu2008} & Isolation Forest & Non-density reference baseline\\
+Saito \& Rehmsmeier~\cite{saito2015} & PR beats ROC under imbalance & PR-AUC as the primary metric\\
+\bottomrule
+\end{tabularx}
+\end{table}
+Most published work on this dataset trains \emph{supervised} classifiers with random (not time-ordered) splits and
+reports accuracy or ROC-AUC. Fewer studies evaluate a label-free density model under a chronological, leakage-free
+protocol with triage metrics, or examine how preprocessing and model order affect the stability of EM. That is the
+focus of this phase.
+
+%==================================================================
+\section{Dataset and Exploratory Data Analysis}\label{sec:data}
+
+\subsection{Dataset description}
+We use the Credit Card Fraud Detection dataset released by the ULB Machine Learning Group~\cite{dalpozzolo2015}
+(distributed via Kaggle). It contains \nRowsRaw{} transactions made by European cardholders over two days in
+September~2013, of which \nFraudRaw{} are fraudulent. Table~\ref{tab:features} describes the columns. The notebooks
+download the file from a public mirror and verify its SHA-256 checksum, so every run uses identical data.
+
+\begin{table}[H]
+\centering\small
+\caption{Dataset columns.}
+\label{tab:features}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Column} & \textbf{Type} & \textbf{Meaning}\\
+\midrule
+\texttt{Time} & numeric & Seconds elapsed since the first transaction in the file (0 to 172{,}792 s $\approx$ 48 h)\\
+\texttt{V1}--\texttt{V28} & numeric & Principal components of confidential original features (anonymised by the bank)\\
+\texttt{Amount} & numeric & Transaction amount in euros\\
+\texttt{Class} & binary & 1 = fraud, 0 = legitimate (used only for evaluation and to remove frauds from training)\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Data quality}
+The data has no missing values and all columns are numeric, so no imputation is needed. We found \nDup{} exact
+duplicate rows, \nDupFraud{} of them frauds. We drop them \emph{before} splitting, because an identical row in both the
+training and the test block leaks information and inflates test scores. After deduplication \nRows{} rows remain,
+including \nFraud{} frauds.
+
+\subsection{Class imbalance}
+Fraud makes up only \fraudRate{} of the rows, about one transaction in 600 (Fig.~\ref{fig:balance}). A model that never
+flags anything would be 99.83\% accurate and would catch no fraud. Accuracy is therefore meaningless here. We use the
+triage metrics defined in Section~\ref{sec:metrics}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\linewidth]{01_class_balance.png}
+\caption{Class balance on a logarithmic scale: legitimate transactions outnumber frauds by about 600 to 1.}
+\label{fig:balance}
+\end{figure}
+
+\subsection{Time of day and transaction amount}
+Transaction volume collapses in the early hours of the day, while the \emph{fraud rate} peaks there, at up to about
+nine times the average (Fig.~\ref{fig:time}). The raw \texttt{Time} value only encodes a row's position within the
+two-day file, so we keep the hour-of-day signal instead (Section~\ref{sec:fe}). \texttt{Amount} is extremely
+right-skewed (skewness $>15$). Frauds have a lower median amount than legitimate transactions, because many are
+small ``test'' charges, but they also have a long tail (Fig.~\ref{fig:amount}). Amount alone cannot separate the
+classes.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\linewidth]{01_time_of_day.png}
+\caption{Transaction volume (bars) and fraud rate (line) by hour of day. Fraud is rare in absolute terms but
+proportionally much more frequent at night.}
+\label{fig:time}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{01_amount.png}
+\caption{Distribution of the transaction amount (left, clipped at 1{,}000) and of $\log(1+\text{Amount})$ (right) for
+legitimate and fraudulent transactions.}
+\label{fig:amount}
+\end{figure}
+
+\subsection{Which components separate the classes?}
+Labels are used here \emph{only for analysis}; the models never see them during training. We rank features by the
+two-sample Kolmogorov--Smirnov (KS) statistic between the legitimate and the fraud distributions
+(Fig.~\ref{fig:ks}). The strongest separators are \ksTop{}. Fig.~\ref{fig:top} shows that frauds sit in the
+\emph{tails} of these components, far from where legitimate transactions concentrate. This is exactly the structure a
+density-based detector exploits: a transaction in a low-density region of ``normal'' space is suspicious.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{01_ks_separation.png}
+\caption{Kolmogorov--Smirnov separation between legitimate and fraud distributions, per feature (higher = more
+different).}
+\label{fig:ks}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{01_top_features.png}
+\caption{Densities of the six most separating components. Frauds (red) occupy the tails of the legitimate
+distribution (blue).}
+\label{fig:top}
+\end{figure}
+
+\subsection{Is legitimate behaviour Gaussian?}
+A Gaussian density assumes symmetric, light-tailed marginals (skewness 0, excess kurtosis 0). On legitimate rows,
+\nSkewed{} of the 31 model features have $|\text{skewness}|>1$ and \nHeavy{} have excess kurtosis above 3. The extreme
+case is V28, with excess kurtosis of about 966. The Q--Q plots in Fig.~\ref{fig:qq} bend strongly away from the
+Gaussian line. A single Gaussian is therefore a poor fit, and even mixture components are strained. This quantifies
+the gap named in the brief: the Gaussian-mixture assumption may not hold for the legitimate transaction manifold.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{01_qq_plots.png}
+\caption{Q--Q plots of legitimate transactions against a normal distribution. Points far from the line indicate heavy
+tails and skew.}
+\label{fig:qq}
+\end{figure}
+
+\subsection{Correlation structure}
+Because V1--V28 are principal components, they are nearly uncorrelated over the whole dataset. \emph{Within the fraud
+class}, however, they are strongly correlated (Fig.~\ref{fig:corr}): fraud moves several components together. A
+full-covariance density model can recognise such an unusual \emph{combination} even when no single feature is
+extreme, which a per-feature threshold rule could not.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{01_correlation.png}
+\caption{Correlation of V1--V18 among legitimate transactions (left) and among frauds (right).}
+\label{fig:corr}
+\end{figure}
+
+\subsection{Chronological split and base rates}
+Rows are ordered by \texttt{Time} and cut into three consecutive blocks (Table~\ref{tab:split}, Fig.~\ref{fig:split}).
+Models are trained on the past and evaluated on the future, as they would be in production. The scaler and the GMM
+are fitted only on the \trainLegit{} legitimate training rows. The fraud label is used once, to remove frauds from that
+block. The validation block (mixed) is used to choose hyper-parameters and thresholds. The test block (mixed) is used
+once, at the end. Base rates drift between blocks, so every precision value must be read against its block's base
+rate.
+
+\begin{table}[H]
+\centering\small
+\caption{Chronological split and base rates.}
+\label{tab:split}
+\begin{tabularx}{\linewidth}{@{}l r r r X@{}}
+\toprule
+\textbf{Block} & \textbf{Rows} & \textbf{Frauds} & \textbf{Fraud rate} & \textbf{Used for}\\
+\midrule
+Train (first 60\%) & \trainRows & \trainFraud & \trainRate & fitting scaler and GMM (legitimate rows only)\\
+Validation (next 20\%) & \valRows & \valFraud & \valRate & choosing hyper-parameters and thresholds\\
+Test (last 20\%) & \testRows & \testFraud & \testRate & final evaluation, used once\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{01_split_timeline.png}
+\caption{Transactions per 30 minutes, coloured by block; red ticks mark frauds.}
+\label{fig:split}
+\end{figure}
+
+\textbf{Limitation.} The validation and test blocks (hours 33--48) cover the daytime and evening of day two. The night-time hours, where the
+fraud \emph{rate} peaks, occur only in the training block, so the time-of-day feature is evaluated on daytime
+transactions only.
+
+%==================================================================
+\section{Feature Engineering}\label{sec:fe}
+
+\subsection{Engineered features}
+Table~\ref{tab:fe-design} lists every transformation and its rationale. The hour of day is placed on the unit circle,
+so that 23:00 and 00:00 are neighbours:
+\begin{equation}
+h=\frac{\texttt{Time}\bmod 86400}{3600},\qquad \text{hour\_sin}=\sin\!\left(\frac{2\pi h}{24}\right),\qquad
+\text{hour\_cos}=\cos\!\left(\frac{2\pi h}{24}\right).
+\end{equation}
+
+\begin{table}[H]
+\centering\small
+\caption{Feature-engineering decisions.}
+\label{tab:fe-design}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Item} & \textbf{Choice} & \textbf{Reason}\\
+\midrule
+Duplicates & dropped before splitting & avoid train/test leakage\\
+\texttt{Time} & $\rightarrow$ hour\_sin, hour\_cos; raw value dropped & keep the night-time fraud signal, remove the position-in-file artefact\\
+\texttt{Amount} & $\rightarrow \log(1+\text{Amount})$ & remove extreme skew so one feature cannot dominate\\
+V1--V28 & kept & already decorrelated principal components\\
+Scaling & fitted on legitimate training rows only & no information from validation, test or fraud\\
+Labels & used only to drop training frauds, set thresholds, score test & ``keep the fraud label hidden during unsupervised training''\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+We compare three feature sets: \emph{pca} (V1--V28, $d{=}28$), \emph{pca+amount} ($d{=}29$) and \emph{full}
+($d{=}31$, adding the hour features).
+
+\subsection{Scaling options}
+Four scalers are compared, each fitted on legitimate training rows only:
+\begin{itemize}
+\item \textbf{Standard:} $z=(x-\mu)/\sigma$.
+\item \textbf{Robust:} $z=(x-\text{median})/\text{IQR}$, which is less sensitive to outliers.
+\item \textbf{Power (Yeo--Johnson):} a parametric transform that reduces skew, followed by standardisation.
+\item \textbf{Quantile:} $z=\Phi^{-1}\big(\hat F(x)\big)$, where $\hat F$ is the empirical CDF of the feature on
+legitimate training rows and $\Phi$ is the standard normal CDF. Every \emph{marginal} becomes exactly standard normal
+on the training data. Values beyond the training range are clipped to the extreme quantiles.
+\end{itemize}
+
+%==================================================================
+\section{Methodology}\label{sec:method}
+
+\subsection{Overview}
+Fig.~\ref{fig:pipeline} summarises the pipeline. Everything to the left of the scoring step uses legitimate training
+rows only.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.55cm and 0.5cm,
+  box/.style={draw,align=center,font=\small,minimum height=1.25cm,text width=2.25cm},
+  hot/.style={box},
+  arr/.style={-{Stealth[length=2mm]}}]
+\node[box] (data) {Raw data\\\footnotesize 284{,}807 rows};
+\node[box,right=of data] (split) {Deduplicate +\\time split\\\footnotesize 60/20/20};
+\node[box,right=of split] (fe) {Features +\\quantile scaling\\\footnotesize legit train only};
+\node[box,right=of fe] (gmm) {GMM by EM\\\footnotesize $K$ by AIC/BIC\\+ validation};
+\node[hot,right=of gmm] (score) {Score\\$-\log p(\mathbf{x})$};
+\node[hot,below=0.9cm of score] (queue) {Review queue\\\footnotesize threshold\\from validation};
+\draw[arr] (data) -- (split); \draw[arr] (split) -- (fe); \draw[arr] (fe) -- (gmm); \draw[arr] (gmm) -- (score);
+\draw[arr] (score) -- (queue);
+\end{tikzpicture}
+\caption{Phase-1 pipeline. The model sees only legitimate training transactions; labels are used only for choosing
+thresholds (validation) and for the final evaluation (test).}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Gaussian Mixture Model}
+A GMM with $K$ components models the density of legitimate transactions as
+\begin{equation}
+p(\mathbf{x})=\sum_{k=1}^{K}\pi_k\,\mathcal{N}(\mathbf{x}\mid\bm\mu_k,\bm\Sigma_k),\qquad \pi_k\ge 0,\quad \sum_{k=1}^{K}\pi_k=1,
+\label{eq:gmm}
+\end{equation}
+\begin{equation}
+\mathcal{N}(\mathbf{x}\mid\bm\mu,\bm\Sigma)=(2\pi)^{-d/2}\,|\bm\Sigma|^{-1/2}\exp\!\Big(-\tfrac12(\mathbf{x}-\bm\mu)^{\top}\bm\Sigma^{-1}(\mathbf{x}-\bm\mu)\Big).
+\end{equation}
+Each component can be read as one ``kind'' of normal transaction. The mixture can represent multi-modal and skewed
+shapes, but every component is an ellipsoid.
+
+\subsection{Expectation--Maximisation}
+Given $N$ legitimate training rows, the log-likelihood
+$\ell(\theta)=\sum_{i=1}^{N}\log\sum_{k=1}^{K}\pi_k\,\mathcal{N}(\mathbf{x}_i\mid\bm\mu_k,\bm\Sigma_k)$ has no closed-form
+maximiser, because the logarithm of a sum couples the components. EM introduces the unobserved component membership
+of each row and alternates two steps (Algorithm~\ref{alg:em}).
+
+\textbf{E-step.} Compute the \emph{responsibility} of component $k$ for row $i$:
+\begin{equation}
+\gamma_{ik}=\frac{\pi_k\,\mathcal{N}(\mathbf{x}_i\mid\bm\mu_k,\bm\Sigma_k)}{\sum_{j=1}^{K}\pi_j\,\mathcal{N}(\mathbf{x}_i\mid\bm\mu_j,\bm\Sigma_j)}.
+\end{equation}
+
+\textbf{M-step.} With $N_k=\sum_i\gamma_{ik}$, re-estimate the parameters as responsibility-weighted averages:
+\begin{equation}
+\pi_k=\frac{N_k}{N},\qquad \bm\mu_k=\frac{1}{N_k}\sum_{i}\gamma_{ik}\mathbf{x}_i,\qquad
+\bm\Sigma_k=\frac{1}{N_k}\sum_{i}\gamma_{ik}(\mathbf{x}_i-\bm\mu_k)(\mathbf{x}_i-\bm\mu_k)^{\top}+\lambda\mathbf{I}.
+\end{equation}
+Each EM iteration never decreases $\ell(\theta)$~\cite{dempster1977}, but EM converges only to a \emph{local} optimum
+that depends on the initialisation. We initialise with k-means++ and study the effect of the random seed
+(Section~\ref{sec:stab}). The ridge term $\lambda\mathbf{I}$ (\texttt{reg\_covar}, default $10^{-4}$) keeps every
+covariance invertible when a component collapses onto a few nearly identical points; without it the likelihood can
+diverge to infinity.
+
+\begin{algorithm}[H]
+\caption{EM for a Gaussian mixture fitted on legitimate transactions}
+\label{alg:em}
+\begin{algorithmic}[1]
+\Require legitimate training rows $\mathbf{x}_1,\dots,\mathbf{x}_N$; number of components $K$; regulariser $\lambda$
+\State Initialise $\bm\mu_k$ with k-means++; set $\pi_k=1/K$ and $\bm\Sigma_k$ from the k-means clusters
+\Repeat
+  \State \textbf{E-step:} $\gamma_{ik}\gets \pi_k\mathcal{N}(\mathbf{x}_i\mid\bm\mu_k,\bm\Sigma_k)\,/\,\sum_j\pi_j\mathcal{N}(\mathbf{x}_i\mid\bm\mu_j,\bm\Sigma_j)$
+  \State \textbf{M-step:} $N_k\gets\sum_i\gamma_{ik}$;\; $\pi_k\gets N_k/N$;\; $\bm\mu_k\gets\frac{1}{N_k}\sum_i\gamma_{ik}\mathbf{x}_i$
+  \State \hphantom{\textbf{M-step:}} $\bm\Sigma_k\gets\frac{1}{N_k}\sum_i\gamma_{ik}(\mathbf{x}_i-\bm\mu_k)(\mathbf{x}_i-\bm\mu_k)^{\top}+\lambda\mathbf{I}$
+\Until{the increase of $\ell(\theta)$ is below a tolerance (or 500 iterations)}
+\State \Return $\{\pi_k,\bm\mu_k,\bm\Sigma_k\}$; anomaly score $s(\mathbf{x})=-\log p(\mathbf{x})$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Anomaly score and decision rule}
+The anomaly score is the negative log-likelihood under the legitimate density,
+\begin{equation}
+s(\mathbf{x})=-\log p(\mathbf{x}),
+\end{equation}
+so a transaction in a low-density region of legitimate behaviour receives a high score. A deployed system raises an
+alert when $s(\mathbf{x})>t$. The threshold $t$ is the $(1-f)$-quantile of the scores of legitimate \emph{validation}
+transactions, where $f$ is the false-positive budget. It is then frozen and applied to the test period. For $K=1$ the
+score reduces (up to constants) to the squared Mahalanobis distance
+$(\mathbf{x}-\bm\mu)^{\top}\bm\Sigma^{-1}(\mathbf{x}-\bm\mu)$, which we use as a baseline.
+
+\subsection{Model selection with AIC and BIC}
+With $p$ free parameters, maximised likelihood $\hat L$ and $n$ rows,
+\begin{equation}
+\mathrm{AIC}=2p-2\log\hat L,\qquad \mathrm{BIC}=p\log n-2\log\hat L .
+\end{equation}
+Both reward fit and penalise complexity. BIC penalises more strongly ($\log n>2$ for $n>7$), so it prefers smaller
+models. Table~\ref{tab:params} gives the parameter counts.
+
+\begin{table}[H]
+\centering\small
+\caption{Free parameters of a $K$-component GMM in $d$ dimensions.}
+\label{tab:params}
+\begin{tabular}{@{}l l l@{}}
+\toprule
+\textbf{Covariance} & \textbf{Free parameters $p$} & \textbf{Per component, $d=\selD$}\\
+\midrule
+Full & $(K-1)+Kd+K\,d(d+1)/2$ & \perComp{}\\
+Diagonal & $(K-1)+2Kd$ & $2d=\the\numexpr 2*\selD\relax$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Computational complexity}
+One EM iteration with full covariances costs $\mathcal{O}(N K d^2)$ for the E-step, which evaluates every Mahalanobis
+form, plus $\mathcal{O}(K d^3)$ for the Cholesky factorisations. For $N\approx1.7\times10^{5}$, $d=\selD$ and $K\le24$
+a fit takes seconds on a laptop CPU, but more than a minute on Colab's free CPU. The selection studies (about 100
+fits) therefore use a random 40{,}000-row \emph{development subsample} of the legitimate training rows. The final model
+and all baselines use all rows.
+
+\subsection{Reference baselines}
+To put the GMM's numbers in context we evaluate:
+\begin{itemize}
+\item a \textbf{single Gaussian} ($K=1$, Mahalanobis distance) on the same inputs;
+\item the same single Gaussian on \textbf{standard-scaled} inputs, which isolates the effect of feature engineering;
+\item the \textbf{BIC-selected} mixture;
+\item \textbf{Isolation Forest}~\cite{liu2008} (300 trees), fitted on legitimate rows only;
+\item a \textbf{supervised logistic regression} (class-balanced, $C=0.1$) that \emph{uses fraud labels}. This is an
+upper reference showing what labels are worth, not a fair competitor.
+\end{itemize}
+
+\subsection{Evaluation protocol and metrics}\label{sec:metrics}
+All scores follow the convention ``higher = more suspicious''. Let $y_i\in\{0,1\}$ be the label and $s_i$ the score.
+\begin{itemize}
+\item \textbf{PR-AUC (average precision).} $\text{AP}=\sum_n (R_n-R_{n-1})P_n$ over all thresholds, where $P_n$ and
+$R_n$ are precision and recall. A random ranking scores the base rate (\testRate{} on test). We add a 95\% stratified
+bootstrap confidence interval (1{,}000 resamples).
+\item \textbf{Recall at a false-positive budget $f\in\{0.1\%,0.5\%,1\%\}$.} The threshold is set on validation so
+that a fraction $f$ of legitimate validation transactions would be flagged. We report test recall and the
+\emph{realised} test false-positive rate.
+\item \textbf{Precision at a review capacity $k\in\{50,100,200,500\}$ (P@$k$).} The share of fraud among the $k$
+highest-scored test transactions.
+\item \textbf{ROC-AUC} as a secondary metric only.
+\end{itemize}
+Because EM depends on its initialisation, every comparison during development is the mean over three seeds.
+
+\subsection{Experimental setup}
+\begin{table}[H]
+\centering\small
+\caption{Experimental setup and hyper-parameters.}
+\label{tab:setup}
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+\textbf{Item} & \textbf{Setting}\\
+\midrule
+Feature-set / scaler grid & \{pca, pca+amount, full\} $\times$ \{standard, robust, power, quantile\}; GMM full, $K=4$, 3 seeds\\
+$K$ grid & \{1, 2, 3, 4, 6, 8, 12, 16, 24\}; full (3 seeds) and diagonal (1 seed) covariances\\
+EM & k-means++ initialisation, $\lambda=10^{-4}$, max.\ 500 iterations; final model with 5 restarts (\texttt{n\_init=5})\\
+Selection rule & AIC/BIC reported; $K$ chosen by mean validation PR-AUC\\
+Stability study & 5 EM seeds for $K\in\{4,8,16\}$, quantile vs.\ standard inputs\\
+Bootstrap & 1{,}000 stratified resamples for confidence intervals\\
+Software & Python 3, scikit-learn, NumPy, pandas, SciPy, matplotlib~\cite{pedregosa2011}\\
+Hardware & Google Colab (standard CPU runtime); global seed 42\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+%==================================================================
+\section{Experiments and Results}\label{sec:results}
+
+\subsection{Feature-engineering ablation}
+Table~\ref{tab:feabl} and Fig.~\ref{fig:feabl} compare feature sets and scalers with a fixed GMM (full covariance,
+$K=4$). \textbf{Quantile scaling is the best scaler for every feature set, and it has by far the smallest seed-to-seed
+spread.} With standard, robust or power scaling, the heavy tails of legitimate features (Section~\ref{sec:data}) let a
+few extreme legitimate values dominate the covariance estimates. Different EM runs then lock onto different extreme
+points, and validation PR-AUC swings by $\pm0.1$--$0.3$. The selected inputs are \emph{\selFS{} + \selScaler{}}. With
+only 57 validation frauds, the differences between feature sets under quantile scaling are within the noise level;
+the decision that matters is the scaler.
+
+\begin{table}[H]
+\centering\small
+\caption{Feature ablation: validation PR-AUC (mean $\pm$ std over 3 EM seeds; GMM, full covariance, $K=4$). Best in bold.}
+\label{tab:feabl}
+\begin{tabular}{@{}l c c c c@{}}
+\toprule
+\textbf{Feature set} & \textbf{standard} & \textbf{robust} & \textbf{power} & \textbf{quantile}\\
+\midrule
+\feAblationRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\linewidth]{02_feature_ablation.png}
+\caption{Feature ablation heat map (validation PR-AUC, mean $\pm$ std over 3 seeds).}
+\label{fig:feabl}
+\end{figure}
+
+\subsection{Choosing $K$: information criteria versus detection quality}
+Fig.~\ref{fig:sel} and Table~\ref{tab:sel} show the sweep on the selected inputs.
+
+AIC, BIC and the label-free held-out log-likelihood \emph{all keep improving} up to the largest model tried
+($K=\kBIC$). With tens of thousands of rows, the penalty $p\log n$ is small next to the likelihood gained by
+describing the heavy tails ever more finely. Detection quality does not follow. Validation PR-AUC is flat or lower for
+large $K$, and its seed-to-seed spread grows, because more components mean more local optima and extra components
+begin to model rare legitimate behaviour in the sparse regions where fraud also lives. Diagonal covariances are far
+worse at every $K$ (best \diagBestAP{} at $K=\diagBestK$): fraud is visible in \emph{combinations} of components,
+which a diagonal model cannot represent.
+
+We therefore report the BIC choice as a baseline, but select $K$ by mean validation PR-AUC, which is the purpose of the
+validation block. The final model (full covariance, $K=\selK$) is refit on \emph{all} legitimate training rows with five
+EM restarts, keeping the restart with the highest likelihood (a label-free choice).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{02_gmm_model_selection.png}
+\caption{Model selection on quantile-scaled inputs. Left: AIC and BIC keep decreasing with $K$. Centre: held-out
+legitimate log-likelihood keeps increasing. Right: validation PR-AUC (mean $\pm$ std over 3 seeds) does not improve
+with $K$.}
+\label{fig:sel}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\caption{Full-covariance sweep on the development subsample (BIC in millions; PR-AUC mean $\pm$ std over 3 seeds).}
+\label{tab:sel}
+\begin{tabular}{@{}r r r r c@{}}
+\toprule
+\textbf{$K$} & \textbf{Parameters} & \textbf{BIC} & \textbf{Held-out $\ell$/row} & \textbf{Validation PR-AUC}\\
+\midrule
+\selectionRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Main results}
+Table~\ref{tab:main} reports test performance with thresholds fixed on validation, and Fig.~\ref{fig:pr} shows the
+curves.
+
+\begin{table}[H]
+\centering\footnotesize
+\caption{Test results (thresholds for the recall columns chosen on validation and frozen). P@$k$ = precision of the
+top-$k$ alerts. Base rate on test = \testRate.}
+\label{tab:main}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{@{}l c c c c c c c c@{}}
+\toprule
+\textbf{Model} & \textbf{PR-AUC} & \textbf{95\% CI} & \textbf{ROC-AUC} & \textbf{Rec@0.1\%} & \textbf{Rec@0.5\%} & \textbf{Rec@1\%} & \textbf{P@50} & \textbf{P@100}\\
+\midrule
+\mainRows
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The main observations are:
+\begin{itemize}
+\item The selected GMM reaches \textbf{PR-AUC \gmmTestAP{}}. At the strictest budget (0.1\% of legitimate customers
+flagged on validation) it catches \textbf{\gmmRecallA{}} of test frauds with \gmmAlertsA{} alerts, of which \gmmPrecA{}
+are fraud. Its top-50 queue is \textbf{\gmmPA{} fraud}.
+\item \textbf{Mixture size barely matters:} a single Gaussian on the same inputs scores \apKOne{}; the BIC-selected
+mixture ($K=\kBIC$) scores \apBIC{}.
+\item \textbf{The scaler matters enormously:} the same single Gaussian on standard-scaled inputs collapses to
+\apStd{}.
+\item Isolation Forest reaches only \apIso{}. The label-using logistic regression (upper reference) reaches \apSup{}, so
+the label-free GMM recovers most of what labels are worth.
+\end{itemize}
+
+ROC-AUC is high (0.93--0.98) for almost every model, including those with poor precision. This confirms that ROC is
+uninformative under this imbalance~\cite{saito2015}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{02_pr_and_budget_curves.png}
+\caption{Test precision--recall curves (left) and recall versus false-positive rate on a log scale (right). Dotted
+lines mark the 0.1\%, 0.5\% and 1\% budgets.}
+\label{fig:pr}
+\end{figure}
+
+\subsection{Score distribution}
+Fig.~\ref{fig:scores} shows the distribution of the GMM score on the test set. Most frauds receive scores far beyond
+the bulk of legitimate transactions, while a minority overlap with legitimate behaviour. These overlapping frauds
+cannot be caught without flagging many legitimate customers.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{02_score_distribution.png}
+\caption{GMM anomaly score on test (log density axis) with the three validation-chosen thresholds.}
+\label{fig:scores}
+\end{figure}
+
+\subsection{Threshold analysis and false-positive trade-offs}
+Table~\ref{tab:op} turns the scores into operating policies for the 7.7-hour test window. Tightening the budget from
+1\% to 0.1\% shrinks the queue from \gmmAlertsC{} to \gmmAlertsA{} alerts while losing only a couple of frauds. Most
+frauds are either very anomalous (caught at any budget) or look entirely normal (missed at every budget), so the
+recall curve is flat between budgets (Fig.~\ref{fig:tradeoff}). The realised test false-positive rate stays below its
+validation target because the test period is slightly ``cleaner'' than the validation period.
+
+\begin{table}[H]
+\centering\small
+\caption{GMM operating points on the test period (thresholds from validation).}
+\label{tab:op}
+\begin{tabular}{@{}l r r r r r@{}}
+\toprule
+\textbf{FP budget} & \textbf{Alerts} & \textbf{Alerts / hour} & \textbf{Frauds caught} & \textbf{Precision} & \textbf{Realised FPR}\\
+\midrule
+\opRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{02_threshold_tradeoff.png}
+\caption{Precision and recall versus review workload (number of alerts, log scale) on the test period.}
+\label{fig:tradeoff}
+\end{figure}
+
+\subsection{Cost-based operating point}
+A simple cost model makes the trade-off concrete. Assume each alert costs a fixed review cost $c$, and each missed fraud
+loses its transaction amount. Reviewing the top $k$ alerts then costs
+\begin{equation}
+\text{Cost}(k)=c\cdot k+\sum_{i\,\in\,\text{frauds not in top-}k}\text{Amount}_i .
+\end{equation}
+With $c=5$, the cost is minimised by reviewing the top \costBestAlerts{} alerts, for a total of \costTotal{}, compared
+with \costNone{} if no model is used (Fig.~\ref{fig:cost}). The cost values are illustrative, but the method lets a
+bank choose its operating point from its own review and loss costs.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\linewidth]{02_cost_curve.png}
+\caption{Review cost plus missed-fraud amount versus the number of alerts reviewed, for three review costs per alert.}
+\label{fig:cost}
+\end{figure}
+
+\subsection{Stability: the high-dimensional gap, measured}\label{sec:stab}
+Table~\ref{tab:stab} and Fig.~\ref{fig:stab} refit the GMM with five EM seeds. With standard scaling at $K=\selK$,
+test PR-AUC ranges from \stabSmin{} to \stabSmax{} (std \stabSstd{}): the same model, started differently, is either
+useful or useless. With quantile inputs the range narrows to \stabQmin{}--\stabQmax{} (std \stabQstd{}), and the
+rankings and top-100 queues agree far more. Instability grows with $K$ for both input types. Even for the final
+model, the fitted covariance matrices have condition numbers up to about \condMax{}, so several directions are almost
+flat. This shows how close a \selD-dimensional full-covariance mixture is to degeneracy. Moderate regularisation
+($\lambda$ between 0 and $10^{-2}$) barely changes validation PR-AUC; strong regularisation ($\lambda=0.1$) blurs the
+density and hurts.
+
+\begin{table}[H]
+\centering\small
+\caption{Seed stability on test (5 EM seeds): PR-AUC mean $\pm$ std and range, mean Spearman $\rho$ between seeds,
+and mean overlap of the top-100 alerts.}
+\label{tab:stab}
+\begin{tabular}{@{}r l c c c c@{}}
+\toprule
+\textbf{$K$} & \textbf{Inputs} & \textbf{PR-AUC} & \textbf{Range} & \textbf{Spearman $\rho$} & \textbf{Top-100 overlap}\\
+\midrule
+\stabilityRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\linewidth]{02_seed_stability.png}
+\caption{Test PR-AUC of five EM seeds per configuration: quantile inputs (green) versus standard scaling (red).}
+\label{fig:stab}
+\end{figure}
+
+\subsection{Error analysis}
+At the 0.5\% budget the caught frauds have extreme values in V14 and V17 (mean $|\text{V14}|\approx8$), while the
+missed frauds look ordinary in these components (about a quarter of that) and sit in dense legitimate regions. False
+alarms are legitimate transactions in sparse regions: unusual component values and larger amounts. They are ``rare but
+honest'' behaviour, which any purely density-based detector will flag.
+
+%==================================================================
+\section{Discussion}\label{sec:disc}
+
+\subsection{Interpretation}
+The results show that, for density-based fraud detection, the \emph{representation} matters more than the model's
+flexibility. The quantile transform moves every feature onto a common Gaussian scale. It removes the heavy tails that
+otherwise dominate the covariance estimates, and it makes the joint structure of legitimate behaviour close enough to
+Gaussian that even one component works well. Information criteria answer a different question (``which model
+describes legitimate data best?'') from the one we care about (``which model ranks fraud highest?''). At this sample
+size they keep favouring larger mixtures that do not detect fraud better.
+
+\subsection{The gap that motivates Phase 2}
+\begin{enumerate}
+\item \textbf{Shape assumption.} The GMM works only after every marginal is \emph{forced} to look Gaussian, and the
+clipping in that transform discards information about how extreme a value is. The joint structure remains
+non-Gaussian.
+\item \textbf{Instability in high dimensions.} Each component costs \perComp{} parameters in \selD{} dimensions. EM's
+solution depends on its seed, and the covariances are near-singular.
+\item \textbf{Likelihood $\neq$ detection.} Unsupervised model selection (AIC/BIC) keeps asking for larger models that
+detect fraud no better and are less stable.
+\item \textbf{Mixture adds little.} $K=1$, $K=\selK$ and $K=\kBIC$ perform alike. Adding ellipsoids does not capture
+the curved, low-dimensional structure of legitimate behaviour.
+\end{enumerate}
+Phase 2 replaces the fixed Gaussian shape with a \emph{learned non-linear} model of legitimate behaviour (undercomplete
+and denoising autoencoders~\cite{sakurada2014,vincent2008}). It then tests hybrids that combine the Gaussian density
+with the autoencoder, in the spirit of DAGMM~\cite{zong2018}.
+
+\subsection{Limitations and threats to validity}
+\begin{itemize}
+\item \textbf{Short horizon.} The data covers two days in 2013; long-term concept drift is untested.
+\item \textbf{Anonymised features.} PCA anonymisation prevents domain features (merchant, customer history, device).
+\item \textbf{Daytime test period.} Validation and test fall in daytime hours (Section~\ref{sec:data}).
+\item \textbf{Few test frauds.} With 74 test frauds, confidence intervals are about $\pm0.1$ PR-AUC wide; differences
+smaller than this should not be over-interpreted.
+\item \textbf{Development subsample.} Selection studies use a 40{,}000-row subsample; the final model uses all rows.
+\end{itemize}
+
+%==================================================================
+\section{Conclusion and Future Work}\label{sec:concl}
+A Gaussian-mixture density of legitimate transactions, fitted without any fraud label, ranks fraud well enough for
+practical triage. It reaches a test PR-AUC of \gmmTestAP{}, catches \gmmRecallA{} of frauds at a 0.1\% false-positive
+budget, and fills a top-50 review queue that is \gmmPA{} fraud. The decisive ingredient was feature engineering
+(marginal Gaussianisation), not the number of components. The information criteria the textbook recommends keep asking
+for larger models that bring no detection gain at this sample size. Together with the measured EM instability, these
+findings define the gap addressed in Phase~2: learning a non-linear model of legitimate behaviour with autoencoders,
+and testing whether a hybrid of the two paradigms can do better than either alone.
+
+%==================================================================
+\bibliographystyle{IEEEtran}
+\bibliography{../references}
+
+%==================================================================
+\appendix
+\section{Reproducibility}
+\begin{itemize}
+\item \textbf{Code.} Four self-contained notebooks (\texttt{notebooks/01}--\texttt{04}) run top-to-bottom on Google
+Colab. Phase 1 uses notebooks 01 (data and features) and 02 (GMM). Each notebook downloads the dataset from a public
+mirror and verifies its SHA-256 checksum.
+\item \textbf{Seeds.} Global seed 42, plus explicit seed lists for multi-seed studies.
+\item \textbf{Traceability.} Every number in this report is generated automatically from the notebooks' saved results
+(\texttt{results/*.json}) into \texttt{numbers.tex}. Every figure is saved by the notebooks into \texttt{figures/}.
+\item \textbf{Run time on Colab.} Notebook 01 takes about 2 minutes and notebook 02 about 35 minutes (CPU runtime).
+\end{itemize}
+
+\section{Team Contributions}
+\begin{table}[H]
+\centering\small
+\caption{Team T068 (Section B): members and primary responsibilities. Every member contributed to the analysis and
+can explain the full pipeline.}
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+\textbf{Name} & \textbf{Enrollment No.} & \textbf{Primary responsibility (Phase 1)}\\
+\midrule
+Sharma Piyush & 2401010437 & Data quality, exploratory analysis, chronological split and leakage control\\
+Saransh Singh Tomar & 2401010418 & Feature engineering and scaling ablation (quantile transform, cyclic time, log amount)\\
+Satwik Mani Tripathi & 2401020056 & GMM theory, EM algorithm, AIC/BIC model selection and stability study\\
+Gourav Tanwar & 2401010173 & Reference baselines (single Gaussian, Isolation Forest, supervised reference) and error analysis\\
+Alok Kumar & 2401010058 & Evaluation protocol, threshold and cost analysis, report and presentation\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\end{document}

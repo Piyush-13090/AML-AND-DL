@@ -1,0 +1,53 @@
+{
+  "data_info": {
+    "rows_raw": 284807,
+    "frauds_raw": 492,
+    "duplicates_dropped": 1081,
+    "fraud_duplicates_dropped": 19,
+    "rows": 283726,
+    "frauds": 473
+  },
+  "base_rates": [
+    {
+      "split": "train",
+      "rows": 170236,
+      "legit": 169894,
+      "frauds": 342,
+      "fraud_rate_%": 0.20089757748067388,
+      "start_h": 0.0,
+      "end_h": 33.4425
+    },
+    {
+      "split": "val",
+      "rows": 56745,
+      "legit": 56688,
+      "frauds": 57,
+      "fraud_rate_%": 0.10044937879989425,
+      "start_h": 33.44277777777778,
+      "end_h": 40.342777777777776
+    },
+    {
+      "split": "test",
+      "rows": 56745,
+      "legit": 56671,
+      "frauds": 74,
+      "fraud_rate_%": 0.13040796545951183,
+      "start_h": 40.342777777777776,
+      "end_h": 47.99777777777778
+    }
+  ],
+  "ks_top10": {
+    "V14": 0.8377,
+    "V10": 0.797,
+    "V12": 0.7766,
+    "V4": 0.7607,
+    "V11": 0.7474,
+    "V17": 0.7355,
+    "V3": 0.6952,
+    "V16": 0.6782,
+    "V7": 0.6516,
+    "V2": 0.6241
+  },
+  "n_skewed": 13,
+  "n_heavy_tailed": 18
+}

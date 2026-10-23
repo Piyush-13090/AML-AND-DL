@@ -1,0 +1,1162 @@
+{
+  "p1": {
+    "feature_set": "pca",
+    "scaler": "quantile",
+    "cov": "full",
+    "k": 4
+  },
+  "p2": {
+    "scaler": "standard",
+    "model": "Denoising AE",
+    "cfg": {
+      "hidden": [
+        24,
+        16
+      ],
+      "latent": 16,
+      "act": "elu",
+      "dropout": 0.0,
+      "noise": 0.2,
+      "mask": 0.0,
+      "wd": 1e-05
+    }
+  },
+  "runs": [
+    {
+      "seed": 0,
+      "model": "AE alone (reconstruction error)",
+      "k": 0,
+      "val_ap": 0.2906624600643482,
+      "test_ap": 0.4561351661822502
+    },
+    {
+      "seed": 0,
+      "model": "H0 GMM on x (same rows)",
+      "k": 1,
+      "val_ap": 0.6866417805902055,
+      "test_ap": 0.6915204150030775
+    },
+    {
+      "seed": 0,
+      "model": "H0 GMM on x (same rows)",
+      "k": 2,
+      "val_ap": 0.6890051453759007,
+      "test_ap": 0.6954972105541792
+    },
+    {
+      "seed": 0,
+      "model": "H0 GMM on x (same rows)",
+      "k": 3,
+      "val_ap": 0.69943510251143,
+      "test_ap": 0.6891810250453614
+    },
+    {
+      "seed": 0,
+      "model": "H0 GMM on x (same rows)",
+      "k": 4,
+      "val_ap": 0.6542381291006397,
+      "test_ap": 0.6610426875444607
+    },
+    {
+      "seed": 0,
+      "model": "H1 latent GMM [z]",
+      "k": 1,
+      "val_ap": 0.0043694728075582,
+      "test_ap": 0.006632904381900532
+    },
+    {
+      "seed": 0,
+      "model": "H1 latent GMM [z]",
+      "k": 2,
+      "val_ap": 0.004216651382613278,
+      "test_ap": 0.005287661437375737
+    },
+    {
+      "seed": 0,
+      "model": "H1 latent GMM [z]",
+      "k": 3,
+      "val_ap": 0.004886357689374039,
+      "test_ap": 0.005949146540649857
+    },
+    {
+      "seed": 0,
+      "model": "H1 latent GMM [z]",
+      "k": 4,
+      "val_ap": 0.005678954622733827,
+      "test_ap": 0.00689470398963178
+    },
+    {
+      "seed": 0,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 1,
+      "val_ap": 0.014941440651209035,
+      "test_ap": 0.023178527193555853
+    },
+    {
+      "seed": 0,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 2,
+      "val_ap": 0.018903242451790096,
+      "test_ap": 0.029633102680186426
+    },
+    {
+      "seed": 0,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 3,
+      "val_ap": 0.022669726290844766,
+      "test_ap": 0.03658272563348738
+    },
+    {
+      "seed": 0,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 4,
+      "val_ap": 0.020503991646312468,
+      "test_ap": 0.03065058910245693
+    },
+    {
+      "seed": 0,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 1,
+      "val_ap": 0.6856761764575842,
+      "test_ap": 0.6926195354850183
+    },
+    {
+      "seed": 0,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 2,
+      "val_ap": 0.688214741789712,
+      "test_ap": 0.6959368002293942
+    },
+    {
+      "seed": 0,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 3,
+      "val_ap": 0.6644026247908605,
+      "test_ap": 0.6700134943913861
+    },
+    {
+      "seed": 0,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 4,
+      "val_ap": 0.7104765392829837,
+      "test_ap": 0.7299213396610191
+    },
+    {
+      "seed": 0,
+      "model": "H4 late fusion (rank avg)",
+      "k": 0,
+      "val_ap": 0.5492816324992004,
+      "test_ap": 0.6450463023710987
+    },
+    {
+      "seed": 1,
+      "model": "AE alone (reconstruction error)",
+      "k": 0,
+      "val_ap": 0.09214205654180202,
+      "test_ap": 0.26426104786492244
+    },
+    {
+      "seed": 1,
+      "model": "H0 GMM on x (same rows)",
+      "k": 1,
+      "val_ap": 0.6843095730430891,
+      "test_ap": 0.6791992279092062
+    },
+    {
+      "seed": 1,
+      "model": "H0 GMM on x (same rows)",
+      "k": 2,
+      "val_ap": 0.688563736910872,
+      "test_ap": 0.6856862451666746
+    },
+    {
+      "seed": 1,
+      "model": "H0 GMM on x (same rows)",
+      "k": 3,
+      "val_ap": 0.669247001110659,
+      "test_ap": 0.6718657563595708
+    },
+    {
+      "seed": 1,
+      "model": "H0 GMM on x (same rows)",
+      "k": 4,
+      "val_ap": 0.38215807404520036,
+      "test_ap": 0.5957806044966252
+    },
+    {
+      "seed": 1,
+      "model": "H1 latent GMM [z]",
+      "k": 1,
+      "val_ap": 0.007228952899618685,
+      "test_ap": 0.011483024314283002
+    },
+    {
+      "seed": 1,
+      "model": "H1 latent GMM [z]",
+      "k": 2,
+      "val_ap": 0.007840009982629063,
+      "test_ap": 0.012141157497844232
+    },
+    {
+      "seed": 1,
+      "model": "H1 latent GMM [z]",
+      "k": 3,
+      "val_ap": 0.008804344724899854,
+      "test_ap": 0.0114009632980193
+    },
+    {
+      "seed": 1,
+      "model": "H1 latent GMM [z]",
+      "k": 4,
+      "val_ap": 0.009743901349107699,
+      "test_ap": 0.013495484347385655
+    },
+    {
+      "seed": 1,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 1,
+      "val_ap": 0.022839134833760592,
+      "test_ap": 0.039864185165350854
+    },
+    {
+      "seed": 1,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 2,
+      "val_ap": 0.02508525825726323,
+      "test_ap": 0.044544117924790724
+    },
+    {
+      "seed": 1,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 3,
+      "val_ap": 0.02618876565342014,
+      "test_ap": 0.047166911093850315
+    },
+    {
+      "seed": 1,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 4,
+      "val_ap": 0.02665037499456055,
+      "test_ap": 0.04836641460643326
+    },
+    {
+      "seed": 1,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 1,
+      "val_ap": 0.6823886948632852,
+      "test_ap": 0.6788987697107207
+    },
+    {
+      "seed": 1,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 2,
+      "val_ap": 0.6865638593352761,
+      "test_ap": 0.6834025554355203
+    },
+    {
+      "seed": 1,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 3,
+      "val_ap": 0.6828707586416461,
+      "test_ap": 0.6765899439097656
+    },
+    {
+      "seed": 1,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 4,
+      "val_ap": 0.5198411292661751,
+      "test_ap": 0.6029333769233516
+    },
+    {
+      "seed": 1,
+      "model": "H4 late fusion (rank avg)",
+      "k": 0,
+      "val_ap": 0.28798672362019706,
+      "test_ap": 0.5501858445617753
+    },
+    {
+      "seed": 2,
+      "model": "AE alone (reconstruction error)",
+      "k": 0,
+      "val_ap": 0.10595228298914232,
+      "test_ap": 0.2549333509879033
+    },
+    {
+      "seed": 2,
+      "model": "H0 GMM on x (same rows)",
+      "k": 1,
+      "val_ap": 0.6892461785375588,
+      "test_ap": 0.7108245179144609
+    },
+    {
+      "seed": 2,
+      "model": "H0 GMM on x (same rows)",
+      "k": 2,
+      "val_ap": 0.6877126290685512,
+      "test_ap": 0.7107272251054794
+    },
+    {
+      "seed": 2,
+      "model": "H0 GMM on x (same rows)",
+      "k": 3,
+      "val_ap": 0.6715345651444452,
+      "test_ap": 0.6705231863911669
+    },
+    {
+      "seed": 2,
+      "model": "H0 GMM on x (same rows)",
+      "k": 4,
+      "val_ap": 0.6715211220553716,
+      "test_ap": 0.6718441266231101
+    },
+    {
+      "seed": 2,
+      "model": "H1 latent GMM [z]",
+      "k": 1,
+      "val_ap": 0.006752467518800171,
+      "test_ap": 0.011517626679712106
+    },
+    {
+      "seed": 2,
+      "model": "H1 latent GMM [z]",
+      "k": 2,
+      "val_ap": 0.008300137783879802,
+      "test_ap": 0.014686933620973397
+    },
+    {
+      "seed": 2,
+      "model": "H1 latent GMM [z]",
+      "k": 3,
+      "val_ap": 0.008644190145893694,
+      "test_ap": 0.014894620126469011
+    },
+    {
+      "seed": 2,
+      "model": "H1 latent GMM [z]",
+      "k": 4,
+      "val_ap": 0.007722556886178672,
+      "test_ap": 0.014504347557658538
+    },
+    {
+      "seed": 2,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 1,
+      "val_ap": 0.016694845683669832,
+      "test_ap": 0.029622695310553625
+    },
+    {
+      "seed": 2,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 2,
+      "val_ap": 0.019371643979080647,
+      "test_ap": 0.03443512167624034
+    },
+    {
+      "seed": 2,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 3,
+      "val_ap": 0.02595128495955296,
+      "test_ap": 0.047009943209439665
+    },
+    {
+      "seed": 2,
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 4,
+      "val_ap": 0.025591856870339363,
+      "test_ap": 0.04254420475643884
+    },
+    {
+      "seed": 2,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 1,
+      "val_ap": 0.6852462095618411,
+      "test_ap": 0.7068041901828431
+    },
+    {
+      "seed": 2,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 2,
+      "val_ap": 0.6846301582846126,
+      "test_ap": 0.7102228747192106
+    },
+    {
+      "seed": 2,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 3,
+      "val_ap": 0.6615773206467774,
+      "test_ap": 0.665997658049354
+    },
+    {
+      "seed": 2,
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 4,
+      "val_ap": 0.6726584191277775,
+      "test_ap": 0.6717426048694318
+    },
+    {
+      "seed": 2,
+      "model": "H4 late fusion (rank avg)",
+      "k": 0,
+      "val_ap": 0.1896421859637512,
+      "test_ap": 0.3753528102362324
+    }
+  ],
+  "by_k": [
+    {
+      "model": "AE alone (reconstruction error)",
+      "k": 0,
+      "val_ap": 0.16291893319843084,
+      "val_std": 0.11084442737792106,
+      "test_ap": 0.325109855011692,
+      "test_std": 0.11356705335511526
+    },
+    {
+      "model": "H0 GMM on x (same rows)",
+      "k": 1,
+      "val_ap": 0.6867325107236179,
+      "val_std": 0.002469553080992305,
+      "test_ap": 0.6938480536089148,
+      "test_std": 0.01594061379271996
+    },
+    {
+      "model": "H0 GMM on x (same rows)",
+      "k": 2,
+      "val_ap": 0.6884271704517747,
+      "val_std": 0.0006569911715569837,
+      "test_ap": 0.6973035602754445,
+      "test_std": 0.012617838307750673
+    },
+    {
+      "model": "H0 GMM on x (same rows)",
+      "k": 3,
+      "val_ap": 0.6800722229221781,
+      "val_std": 0.01680770855271681,
+      "test_ap": 0.6771899892653663,
+      "test_std": 0.010406215826988047
+    },
+    {
+      "model": "H0 GMM on x (same rows)",
+      "k": 4,
+      "val_ap": 0.5693057750670706,
+      "val_std": 0.16230487349336375,
+      "test_ap": 0.642889139554732,
+      "test_std": 0.04115310836416982
+    },
+    {
+      "model": "H1 latent GMM [z]",
+      "k": 1,
+      "val_ap": 0.006116964408659019,
+      "val_std": 0.0015320100363482834,
+      "test_ap": 0.009877851791965214,
+      "test_std": 0.002810260148364815
+    },
+    {
+      "model": "H1 latent GMM [z]",
+      "k": 2,
+      "val_ap": 0.0067855997163740476,
+      "val_std": 0.0022366383378901776,
+      "test_ap": 0.010705250852064455,
+      "test_std": 0.0048613732953646
+    },
+    {
+      "model": "H1 latent GMM [z]",
+      "k": 3,
+      "val_ap": 0.007444964186722529,
+      "val_std": 0.002217264706456943,
+      "test_ap": 0.010748243321712724,
+      "test_std": 0.004508315311094521
+    },
+    {
+      "model": "H1 latent GMM [z]",
+      "k": 4,
+      "val_ap": 0.007715137619340066,
+      "val_std": 0.0020324835192947394,
+      "test_ap": 0.011631511964891992,
+      "test_std": 0.004133093706913392
+    },
+    {
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 1,
+      "val_ap": 0.01815847372287982,
+      "val_std": 0.004147294133305284,
+      "test_ap": 0.030888469223153445,
+      "test_std": 0.008414537015563911
+    },
+    {
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 2,
+      "val_ap": 0.02112004822937799,
+      "val_std": 0.0034419497267716265,
+      "test_ap": 0.036204114093739165,
+      "test_std": 0.007611280742166964
+    },
+    {
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 3,
+      "val_ap": 0.024936592301272622,
+      "val_std": 0.0019667512303071623,
+      "test_ap": 0.043586526645592455,
+      "test_std": 0.006065977348462253
+    },
+    {
+      "model": "H2 DAGMM-style [z, log e, cos]",
+      "k": 4,
+      "val_ap": 0.024248741170404126,
+      "val_std": 0.0032859514456949476,
+      "test_ap": 0.040520402821776345,
+      "test_std": 0.00902964279608514
+    },
+    {
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 1,
+      "val_ap": 0.6844370269609036,
+      "val_std": 0.0017868872850458964,
+      "test_ap": 0.692774165126194,
+      "test_std": 0.013953352847109355
+    },
+    {
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 2,
+      "val_ap": 0.6864695864698668,
+      "val_std": 0.001794150288053369,
+      "test_ap": 0.696520743461375,
+      "test_std": 0.013419691646733357
+    },
+    {
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 3,
+      "val_ap": 0.6696169013597614,
+      "val_std": 0.011564779959561318,
+      "test_ap": 0.6708670321168352,
+      "test_std": 0.00534747837057269
+    },
+    {
+      "model": "H3 augmented GMM [x, log e]",
+      "k": 4,
+      "val_ap": 0.6343253625589788,
+      "val_std": 0.10093330623485602,
+      "test_ap": 0.6681991071512675,
+      "test_std": 0.063568096967935
+    },
+    {
+      "model": "H4 late fusion (rank avg)",
+      "k": 0,
+      "val_ap": 0.3423035140277162,
+      "val_std": 0.1858705683162663,
+      "test_ap": 0.5235283190563688,
+      "test_std": 0.13680867178117168
+    }
+  ],
+  "summary": [
+    {
+      "index": "Phase-1 GMM (all legit rows)",
+      "k": 4,
+      "val_ap": 0.6949046110330329,
+      "val_std": 0.0,
+      "test_ap": 0.6859331422488996,
+      "test_std": 0.0
+    },
+    {
+      "index": "H0 GMM on x (same rows)",
+      "k": 2,
+      "val_ap": 0.6884271704517747,
+      "val_std": 0.0006569911715569837,
+      "test_ap": 0.6973035602754445,
+      "test_std": 0.012617838307750673
+    },
+    {
+      "index": "H3 augmented GMM [x, log e]",
+      "k": 2,
+      "val_ap": 0.6864695864698668,
+      "val_std": 0.001794150288053369,
+      "test_ap": 0.696520743461375,
+      "test_std": 0.013419691646733357
+    },
+    {
+      "index": "H4 late fusion (rank avg)",
+      "k": 0,
+      "val_ap": 0.3423035140277162,
+      "val_std": 0.1858705683162663,
+      "test_ap": 0.5235283190563688,
+      "test_std": 0.13680867178117168
+    },
+    {
+      "index": "AE alone (reconstruction error)",
+      "k": 0,
+      "val_ap": 0.16291893319843084,
+      "val_std": 0.11084442737792106,
+      "test_ap": 0.325109855011692,
+      "test_std": 0.11356705335511526
+    },
+    {
+      "index": "H2 DAGMM-style [z, log e, cos]",
+      "k": 3,
+      "val_ap": 0.024936592301272622,
+      "val_std": 0.0019667512303071623,
+      "test_ap": 0.043586526645592455,
+      "test_std": 0.006065977348462253
+    },
+    {
+      "index": "H1 latent GMM [z]",
+      "k": 4,
+      "val_ap": 0.007715137619340066,
+      "val_std": 0.0020324835192947394,
+      "test_ap": 0.011631511964891992,
+      "test_std": 0.004133093706913392
+    }
+  ],
+  "evidence": {
+    "frauds above legit 99th pct \u2014 latent GMM on z (H1)": 0.04054054054054054,
+    "frauds above legit 99th pct \u2014 GMM on x (H0)": 0.7702702702702703,
+    "frauds above legit 99th pct \u2014 AE error": 0.7702702702702703,
+    "mean |z| legit": 2.908022880554199,
+    "mean |z| fraud": 3.524137020111084,
+    "Spearman(AE error, GMM score) \u2014 test frauds": 0.9518992965568306,
+    "Spearman(AE error, GMM score) \u2014 test legit": 0.38366739572609354
+  },
+  "semi": [
+    {
+      "labelled_frauds": 6,
+      "features": "raw + GMM score + AE error (H5)",
+      "val_ap": 0.5472046907971464,
+      "val_std": 0.26153767332520217,
+      "test_ap": 0.5306876361341036,
+      "test_std": 0.2520999099319032
+    },
+    {
+      "labelled_frauds": 6,
+      "features": "raw features",
+      "val_ap": 0.5489185777162794,
+      "val_std": 0.25577286029313245,
+      "test_ap": 0.5230051868058362,
+      "test_std": 0.23570411480607628
+    },
+    {
+      "labelled_frauds": 17,
+      "features": "raw + GMM score + AE error (H5)",
+      "val_ap": 0.6709613327756647,
+      "val_std": 0.08788846458441024,
+      "test_ap": 0.6923246447487974,
+      "test_std": 0.07230404510567115
+    },
+    {
+      "labelled_frauds": 17,
+      "features": "raw features",
+      "val_ap": 0.6873234570807191,
+      "val_std": 0.08180179280663688,
+      "test_ap": 0.6962507765329831,
+      "test_std": 0.07317975655910097
+    },
+    {
+      "labelled_frauds": 34,
+      "features": "raw + GMM score + AE error (H5)",
+      "val_ap": 0.7148868015256109,
+      "val_std": 0.019133264163808044,
+      "test_ap": 0.7590474793666806,
+      "test_std": 0.021085954461890325
+    },
+    {
+      "labelled_frauds": 34,
+      "features": "raw features",
+      "val_ap": 0.7175103708470063,
+      "val_std": 0.020125845018523006,
+      "test_ap": 0.7472549510101911,
+      "test_std": 0.028538045679693577
+    },
+    {
+      "labelled_frauds": 86,
+      "features": "raw + GMM score + AE error (H5)",
+      "val_ap": 0.7619221852482518,
+      "val_std": 0.016311044432762437,
+      "test_ap": 0.7718016196307904,
+      "test_std": 0.008815797143577334
+    },
+    {
+      "labelled_frauds": 86,
+      "features": "raw features",
+      "val_ap": 0.7649720474153235,
+      "val_std": 0.02459103247098149,
+      "test_ap": 0.7689799838332615,
+      "test_std": 0.013091351361625207
+    },
+    {
+      "labelled_frauds": 342,
+      "features": "raw + GMM score + AE error (H5)",
+      "val_ap": 0.7337108937662128,
+      "val_std": NaN,
+      "test_ap": 0.7714522482375848,
+      "test_std": NaN
+    },
+    {
+      "labelled_frauds": 342,
+      "features": "raw features",
+      "val_ap": 0.7429261215287986,
+      "val_std": NaN,
+      "test_ap": 0.7782043505142724,
+      "test_std": NaN
+    }
+  ],
+  "reports": [
+    {
+      "model": "GMM (Phase 1)",
+      "val_pr_auc": 0.6949046110330329,
+      "test_pr_auc": 0.6859331422488996,
+      "test_roc_auc": 0.9339177719478049,
+      "test_pr_auc_ci": [
+        0.5721865228927875,
+        0.8082566084659878
+      ],
+      "base_rate": 0.0013040796545951184,
+      "budgets": {
+        "0.001": {
+          "threshold": 89.6525727697756,
+          "alerts": 94,
+          "tp": 56,
+          "fp": 38,
+          "fn": 18,
+          "tn": 56633,
+          "precision": 0.5957446808510638,
+          "recall": 0.7567567567567568,
+          "fpr": 0.0006705369589384341
+        },
+        "0.005": {
+          "threshold": 68.95090476717974,
+          "alerts": 221,
+          "tp": 58,
+          "fp": 163,
+          "fn": 16,
+          "tn": 56508,
+          "precision": 0.26244343891402716,
+          "recall": 0.7837837837837838,
+          "fpr": 0.0028762506396569675
+        },
+        "0.01": {
+          "threshold": 62.5073404663743,
+          "alerts": 399,
+          "tp": 58,
+          "fp": 341,
+          "fn": 16,
+          "tn": 56330,
+          "precision": 0.14536340852130325,
+          "recall": 0.7837837837837838,
+          "fpr": 0.006017186921000159
+        }
+      },
+      "capacity": {
+        "50": {
+          "k": 50,
+          "tp": 45,
+          "precision": 0.9,
+          "recall": 0.6081081081081081
+        },
+        "100": {
+          "k": 100,
+          "tp": 56,
+          "precision": 0.56,
+          "recall": 0.7567567567567568
+        },
+        "200": {
+          "k": 200,
+          "tp": 57,
+          "precision": 0.285,
+          "recall": 0.7702702702702703
+        },
+        "500": {
+          "k": 500,
+          "tp": 58,
+          "precision": 0.116,
+          "recall": 0.7837837837837838
+        }
+      }
+    },
+    {
+      "model": "Autoencoder (Phase 2)",
+      "val_pr_auc": 0.1238210491002277,
+      "test_pr_auc": 0.30149387268373506,
+      "test_roc_auc": 0.9429781283815974,
+      "test_pr_auc_ci": [
+        0.23620162407978051,
+        0.40204459409136095
+      ],
+      "base_rate": 0.0013040796545951184,
+      "budgets": {
+        "0.001": {
+          "threshold": 10.737196922302246,
+          "alerts": 38,
+          "tp": 14,
+          "fp": 24,
+          "fn": 60,
+          "tn": 56647,
+          "precision": 0.3684210526315789,
+          "recall": 0.1891891891891892,
+          "fpr": 0.0004234970266979584
+        },
+        "0.005": {
+          "threshold": 2.373784303665161,
+          "alerts": 163,
+          "tp": 53,
+          "fp": 110,
+          "fn": 21,
+          "tn": 56561,
+          "precision": 0.32515337423312884,
+          "recall": 0.7162162162162162,
+          "fpr": 0.0019410280390323093
+        },
+        "0.01": {
+          "threshold": 1.388108253479004,
+          "alerts": 326,
+          "tp": 57,
+          "fp": 269,
+          "fn": 17,
+          "tn": 56402,
+          "precision": 0.17484662576687116,
+          "recall": 0.7702702702702703,
+          "fpr": 0.004746695840906283
+        }
+      },
+      "capacity": {
+        "50": {
+          "k": 50,
+          "tp": 24,
+          "precision": 0.48,
+          "recall": 0.32432432432432434
+        },
+        "100": {
+          "k": 100,
+          "tp": 40,
+          "precision": 0.4,
+          "recall": 0.5405405405405406
+        },
+        "200": {
+          "k": 200,
+          "tp": 56,
+          "precision": 0.28,
+          "recall": 0.7567567567567568
+        },
+        "500": {
+          "k": 500,
+          "tp": 60,
+          "precision": 0.12,
+          "recall": 0.8108108108108109
+        }
+      }
+    },
+    {
+      "model": "Best unsupervised hybrid: H3 augmented GMM [x, log e]",
+      "val_pr_auc": 0.6865229747445787,
+      "test_pr_auc": 0.6950148119382148,
+      "test_roc_auc": 0.9609145151221345,
+      "test_pr_auc_ci": [
+        0.5863172167300588,
+        0.8073760675116897
+      ],
+      "base_rate": 0.0013040796545951184,
+      "budgets": {
+        "0.001": {
+          "threshold": 134.70341961612098,
+          "alerts": 93,
+          "tp": 56,
+          "fp": 37,
+          "fn": 18,
+          "tn": 56634,
+          "precision": 0.6021505376344086,
+          "recall": 0.7567567567567568,
+          "fpr": 0.0006528912494926859
+        },
+        "0.005": {
+          "threshold": 90.36624232805981,
+          "alerts": 218,
+          "tp": 56,
+          "fp": 162,
+          "fn": 18,
+          "tn": 56509,
+          "precision": 0.25688073394495414,
+          "recall": 0.7567567567567568,
+          "fpr": 0.002858604930211219
+        },
+        "0.01": {
+          "threshold": 78.62181673540051,
+          "alerts": 401,
+          "tp": 57,
+          "fp": 344,
+          "fn": 17,
+          "tn": 56327,
+          "precision": 0.14214463840399003,
+          "recall": 0.7702702702702703,
+          "fpr": 0.006070124049337404
+        }
+      },
+      "capacity": {
+        "50": {
+          "k": 50,
+          "tp": 46,
+          "precision": 0.92,
+          "recall": 0.6216216216216216
+        },
+        "100": {
+          "k": 100,
+          "tp": 56,
+          "precision": 0.56,
+          "recall": 0.7567567567567568
+        },
+        "200": {
+          "k": 200,
+          "tp": 56,
+          "precision": 0.28,
+          "recall": 0.7567567567567568
+        },
+        "500": {
+          "k": 500,
+          "tp": 58,
+          "precision": 0.116,
+          "recall": 0.7837837837837838
+        }
+      }
+    },
+    {
+      "model": "Supervised GBM, raw features (uses labels)",
+      "val_pr_auc": 0.7429261215287986,
+      "test_pr_auc": 0.7782043505142724,
+      "test_roc_auc": 0.9764199669309866,
+      "test_pr_auc_ci": [
+        0.6857836982856144,
+        0.8611004006548555
+      ],
+      "base_rate": 0.0013040796545951184,
+      "budgets": {
+        "0.001": {
+          "threshold": 0.01460576619147463,
+          "alerts": 110,
+          "tp": 58,
+          "fp": 52,
+          "fn": 16,
+          "tn": 56619,
+          "precision": 0.5272727272727272,
+          "recall": 0.7837837837837838,
+          "fpr": 0.0009175768911789099
+        },
+        "0.005": {
+          "threshold": 0.0036775992087766532,
+          "alerts": 270,
+          "tp": 62,
+          "fp": 208,
+          "fn": 12,
+          "tn": 56463,
+          "precision": 0.22962962962962963,
+          "recall": 0.8378378378378378,
+          "fpr": 0.0036703075647156395
+        },
+        "0.01": {
+          "threshold": 0.001896497840592102,
+          "alerts": 491,
+          "tp": 64,
+          "fp": 427,
+          "fn": 10,
+          "tn": 56244,
+          "precision": 0.13034623217922606,
+          "recall": 0.8648648648648649,
+          "fpr": 0.007534717933334509
+        }
+      },
+      "capacity": {
+        "50": {
+          "k": 50,
+          "tp": 48,
+          "precision": 0.96,
+          "recall": 0.6486486486486487
+        },
+        "100": {
+          "k": 100,
+          "tp": 58,
+          "precision": 0.58,
+          "recall": 0.7837837837837838
+        },
+        "200": {
+          "k": 200,
+          "tp": 61,
+          "precision": 0.305,
+          "recall": 0.8243243243243243
+        },
+        "500": {
+          "k": 500,
+          "tp": 64,
+          "precision": 0.128,
+          "recall": 0.8648648648648649
+        }
+      }
+    },
+    {
+      "model": "Semi-supervised hybrid H5 (uses labels)",
+      "val_pr_auc": 0.7337108937662128,
+      "test_pr_auc": 0.7714522482375848,
+      "test_roc_auc": 0.9777695060202868,
+      "test_pr_auc_ci": [
+        0.6830694534433442,
+        0.8552139487799292
+      ],
+      "base_rate": 0.0013040796545951184,
+      "budgets": {
+        "0.001": {
+          "threshold": 0.009855283656869409,
+          "alerts": 99,
+          "tp": 56,
+          "fp": 43,
+          "fn": 18,
+          "tn": 56628,
+          "precision": 0.5656565656565656,
+          "recall": 0.7567567567567568,
+          "fpr": 0.0007587655061671755
+        },
+        "0.005": {
+          "threshold": 0.001569279003134955,
+          "alerts": 291,
+          "tp": 60,
+          "fp": 231,
+          "fn": 14,
+          "tn": 56440,
+          "precision": 0.20618556701030927,
+          "recall": 0.8108108108108109,
+          "fpr": 0.004076158881967849
+        },
+        "0.01": {
+          "threshold": 0.0007284441450347018,
+          "alerts": 526,
+          "tp": 64,
+          "fp": 462,
+          "fn": 10,
+          "tn": 56209,
+          "precision": 0.12167300380228137,
+          "recall": 0.8648648648648649,
+          "fpr": 0.008152317763935699
+        }
+      },
+      "capacity": {
+        "50": {
+          "k": 50,
+          "tp": 47,
+          "precision": 0.94,
+          "recall": 0.6351351351351351
+        },
+        "100": {
+          "k": 100,
+          "tp": 56,
+          "precision": 0.56,
+          "recall": 0.7567567567567568
+        },
+        "200": {
+          "k": 200,
+          "tp": 59,
+          "precision": 0.295,
+          "recall": 0.7972972972972973
+        },
+        "500": {
+          "k": 500,
+          "tp": 63,
+          "precision": 0.126,
+          "recall": 0.8513513513513513
+        }
+      }
+    }
+  ],
+  "significance": {
+    "Best unsupervised hybrid: H3 augmented GMM [x, log e] \u2212 GMM": {
+      "diff": 0.00908166968931523,
+      "ci": [
+        -0.009487170248056917,
+        0.022984263858626914
+      ],
+      "p_not_better": 0.325
+    },
+    "AE \u2212 GMM": {
+      "diff": -0.3844392695651645,
+      "ci": [
+        -0.47368283768798514,
+        -0.2992120530095749
+      ],
+      "p_not_better": 1.0
+    },
+    "H5 \u2212 supervised GBM": {
+      "diff": -0.006752102276687544,
+      "ci": [
+        -0.04522617551940121,
+        0.033498919387603764
+      ],
+      "p_not_better": 0.647
+    },
+    "supervised GBM \u2212 GMM": {
+      "diff": 0.09227120826537283,
+      "ci": [
+        0.026022838561606077,
+        0.14468869980636376
+      ],
+      "p_not_better": 0.001
+    }
+  },
+  "best_hybrid": "H3 augmented GMM [x, log e]",
+  "recommended": "GMM (Phase 1)",
+  "operating_points": [
+    {
+      "policy": "FP budget 0.1% (threshold from val)",
+      "alerts": 94,
+      "alerts/hour": 12.3,
+      "fraud caught": "56/74",
+      "recall": 0.757,
+      "precision": 0.596,
+      "legit customers flagged": 38
+    },
+    {
+      "policy": "FP budget 0.5% (threshold from val)",
+      "alerts": 221,
+      "alerts/hour": 28.9,
+      "fraud caught": "58/74",
+      "recall": 0.784,
+      "precision": 0.262,
+      "legit customers flagged": 163
+    },
+    {
+      "policy": "FP budget 1.0% (threshold from val)",
+      "alerts": 399,
+      "alerts/hour": 52.1,
+      "fraud caught": "58/74",
+      "recall": 0.784,
+      "precision": 0.145,
+      "legit customers flagged": 341
+    },
+    {
+      "policy": "review capacity top-50",
+      "alerts": 50,
+      "alerts/hour": 6.5,
+      "fraud caught": "45/74",
+      "recall": 0.608,
+      "precision": 0.9,
+      "legit customers flagged": 5
+    },
+    {
+      "policy": "review capacity top-100",
+      "alerts": 100,
+      "alerts/hour": 13.1,
+      "fraud caught": "56/74",
+      "recall": 0.757,
+      "precision": 0.56,
+      "legit customers flagged": 44
+    },
+    {
+      "policy": "review capacity top-200",
+      "alerts": 200,
+      "alerts/hour": 26.1,
+      "fraud caught": "57/74",
+      "recall": 0.77,
+      "precision": 0.285,
+      "legit customers flagged": 143
+    },
+    {
+      "policy": "review capacity top-500",
+      "alerts": 500,
+      "alerts/hour": 65.3,
+      "fraud caught": "58/74",
+      "recall": 0.784,
+      "precision": 0.116,
+      "legit customers flagged": 442
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# Dataset (150 MB, larger than GitHub's 100 MB limit). The notebooks download it automatically.
+creditcard.csv
+*.csv
+data/
+
+# Notebook run outputs (the copies we keep are in figures/ and results/)
+outputs/
+outputs_*.zip
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# OS
+.DS_Store
